@@ -23,6 +23,16 @@ linux: lint
 linux-on-darwin: lint
 	env CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_amd64 .
 
+# Install cross-compilers
+# brew tap messense/macos-cross-toolchains
+# brew install x86_64-unknown-linux-gnu
+linux-on-darwin-with-cgo: lint
+	GOARCH=amd64 GOOS=linux CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_amd64 .
+
+
+make-linux-in-docker-on-darwin: lint
+	@docker run --rm -v "$$PWD":/src -w /src golang:1.22-bookworm bash -lc "set -euo pipefail; apt-get update; apt-get install -y gcc g++ make pkg-config; make linux"
+
 windows: lint
 	env CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-windows_amd64 .
 
