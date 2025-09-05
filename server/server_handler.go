@@ -1,13 +1,17 @@
 package chserver
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/NextChapterSoftware/chissl/server/capture"
 	chshare "github.com/NextChapterSoftware/chissl/share"
 	"github.com/NextChapterSoftware/chissl/share/cnet"
+	"github.com/NextChapterSoftware/chissl/share/database"
 	"github.com/NextChapterSoftware/chissl/share/settings"
 	"github.com/NextChapterSoftware/chissl/share/tunnel"
 	"golang.org/x/crypto/ssh"
@@ -53,22 +57,238 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/users"):
 		switch r.Method {
 		case http.MethodGet:
-			s.basicAuthMiddleware(s.handleGetUsers)(w, r) // Protecting with Basic Auth
+			s.combinedAuthMiddleware(s.handleGetUsers)(w, r) // Protecting with Combined Auth
+			return
+		case http.MethodPost:
+			s.combinedAuthMiddleware(s.handleCreateUser)(w, r) // Create user
+			return
+		}
+	case strings.HasPrefix(path, "/api/users"):
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleGetUsers)(w, r)
+			return
+		case http.MethodPost:
+			s.combinedAuthMiddleware(s.handleCreateUser)(w, r)
+			return
+		case http.MethodPut:
+			s.combinedAuthMiddleware(s.handleUpdateUserAPI)(w, r)
+			return
+		case http.MethodDelete:
+			s.combinedAuthMiddleware(s.handleDeleteUserAPI)(w, r)
 			return
 		}
 	case strings.HasPrefix(path, "/user"):
 		switch r.Method {
 		case http.MethodGet:
-			s.basicAuthMiddleware(s.handleGetUser)(w, r) // Protecting with Basic Auth
+			s.combinedAuthMiddleware(s.handleGetUser)(w, r) // Protecting with Combined Auth
 			return
 		case http.MethodDelete:
-			s.basicAuthMiddleware(s.handleDeleteUser)(w, r) // Protecting with Basic Auth
+			s.combinedAuthMiddleware(s.handleDeleteUser)(w, r) // Protecting with Combined Auth
 			return
 		case http.MethodPost:
-			s.basicAuthMiddleware(s.handleAddUser)(w, r) // Protecting with Basic Auth
+			s.combinedAuthMiddleware(s.handleAddUser)(w, r) // Protecting with Combined Auth
 			return
 		case http.MethodPut:
-			s.basicAuthMiddleware(s.handleUpdateUser)(w, r) // Protecting with Basic Auth
+			s.combinedAuthMiddleware(s.handleUpdateUser)(w, r) // Protecting with Combined Auth
+			return
+		}
+	case strings.HasPrefix(path, "/api/tunnels"):
+		switch r.Method {
+		case http.MethodGet:
+			if strings.Contains(path, "/active") {
+				s.userAuthMiddleware(s.handleGetActiveTunnels)(w, r)
+			} else if strings.Contains(path, "/payloads") {
+				s.userAuthMiddleware(s.handleGetTunnelPayloads)(w, r)
+			} else if getTunnelIDFromPath(path) != "" {
+				s.userAuthMiddleware(s.handleGetTunnel)(w, r)
+			} else {
+				s.userAuthMiddleware(s.handleGetTunnels)(w, r)
+			}
+			return
+		case http.MethodDelete:
+			s.userAuthMiddleware(s.handleDeleteTunnel)(w, r)
+			return
+		}
+	case strings.HasPrefix(path, "/api/connections"):
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleGetConnections)(w, r)
+			return
+		}
+	case strings.HasPrefix(path, "/api/capture/tunnels/"):
+		switch r.Method {
+		case http.MethodGet:
+			if strings.HasSuffix(path, "/connections") {
+				s.combinedAuthMiddleware(s.handleListCaptureConnections)(w, r)
+				return
+			}
+			if strings.HasSuffix(path, "/download") {
+				s.combinedAuthMiddleware(s.handleDownloadCaptureLog)(w, r)
+				return
+			}
+			if strings.HasSuffix(path, "/recent") {
+				s.combinedAuthMiddleware(s.handleGetRecentEvents)(w, r)
+				return
+			}
+			if strings.HasSuffix(path, "/stream") {
+				s.combinedAuthMiddleware(s.handleSSEStream)(w, r)
+				return
+			}
+		}
+		return
+	case strings.HasPrefix(path, "/api/capture/listeners/"):
+		switch r.Method {
+		case http.MethodGet:
+			if strings.HasSuffix(path, "/recent") {
+				s.combinedAuthMiddleware(s.handleGetRecentEvents)(w, r)
+				return
+			}
+			if strings.HasSuffix(path, "/stream") {
+				s.combinedAuthMiddleware(s.handleSSEStream)(w, r)
+				return
+			}
+		}
+		return
+	case strings.HasPrefix(path, "/api/listeners"):
+		switch r.Method {
+		case http.MethodGet:
+			s.userAuthMiddleware(s.handleListListeners)(w, r)
+			return
+		case http.MethodPost:
+			s.userAuthMiddleware(s.handleCreateListener)(w, r)
+			return
+		}
+		return
+	case strings.HasPrefix(path, "/api/listener/"):
+		switch r.Method {
+		case http.MethodGet:
+			s.userAuthMiddleware(s.handleGetListener)(w, r)
+			return
+		case http.MethodPut:
+			s.userAuthMiddleware(s.handleUpdateListener)(w, r)
+			return
+		case http.MethodDelete:
+			s.userAuthMiddleware(s.handleDeleteListener)(w, r)
+			return
+		}
+		return
+	case strings.HasPrefix(path, "/api/capture"):
+		switch r.Method {
+		case http.MethodGet:
+			if strings.Contains(path, "/stream") {
+				s.combinedAuthMiddleware(s.handleSSEStream)(w, r)
+				return
+			}
+			if strings.Contains(path, "/recent") {
+				s.combinedAuthMiddleware(s.handleGetRecentEvents)(w, r)
+				return
+			}
+		}
+	case strings.HasPrefix(path, "/api/stats"):
+		switch r.Method {
+		case http.MethodGet:
+			s.userAuthMiddleware(s.handleGetStats)(w, r)
+			return
+		}
+	case strings.HasPrefix(path, "/api/sessions"):
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleGetSessions)(w, r)
+			return
+		}
+	case strings.HasPrefix(path, "/api/system"):
+		switch r.Method {
+		case http.MethodGet:
+			s.userAuthMiddleware(s.handleGetSystemInfo)(w, r)
+			return
+		}
+	case strings.HasPrefix(path, "/api/logs"):
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleGetLogs)(w, r)
+			return
+		}
+	case strings.HasPrefix(path, "/api/user/"):
+		switch r.Method {
+		case http.MethodGet:
+			if strings.HasSuffix(path, "/info") {
+				s.userAuthMiddleware(s.handleGetUserInfo)(w, r)
+				return
+			}
+			if strings.Contains(path, "/tokens") {
+				s.userAuthMiddleware(s.handleListUserTokens)(w, r)
+				return
+			}
+			if strings.HasSuffix(path, "/port-reservations") {
+				s.userAuthMiddleware(s.handleListUserPortReservations)(w, r)
+				return
+			}
+		case http.MethodPost:
+			if strings.Contains(path, "/tokens") {
+				s.userAuthMiddleware(s.handleCreateUserToken)(w, r)
+				return
+			}
+		case http.MethodPut:
+			if strings.HasSuffix(path, "/profile") {
+				s.userAuthMiddleware(s.handleUpdateUserProfile)(w, r)
+				return
+			}
+		case http.MethodDelete:
+			if strings.Contains(path, "/tokens/") {
+				s.userAuthMiddleware(s.handleRevokeUserToken)(w, r)
+				return
+			}
+		}
+		return
+	case strings.HasPrefix(path, "/api/port-reservations"):
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleListPortReservations)(w, r)
+			return
+		case http.MethodPost:
+			s.combinedAuthMiddleware(s.handleCreatePortReservation)(w, r)
+			return
+		case http.MethodDelete:
+			s.combinedAuthMiddleware(s.handleDeletePortReservation)(w, r)
+			return
+		}
+		return
+	case strings.HasPrefix(path, "/api/settings/reserved-ports-threshold"):
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleGetReservedPortsThreshold)(w, r)
+			return
+		case http.MethodPost:
+			s.combinedAuthMiddleware(s.handleSetReservedPortsThreshold)(w, r)
+			return
+		}
+		return
+	case strings.HasPrefix(path, "/api/logs"):
+		if strings.HasPrefix(path, "/api/logs/files/") {
+			if strings.HasSuffix(path, "/download") {
+				s.combinedAuthMiddleware(s.handleDownloadLogFile)(w, r)
+				return
+			} else {
+				s.combinedAuthMiddleware(s.handleGetLogFileContent)(w, r)
+				return
+			}
+		} else if strings.HasPrefix(path, "/api/logs/files") {
+			s.combinedAuthMiddleware(s.handleGetLogFiles)(w, r)
+			return
+		} else if strings.HasSuffix(path, "/clear") {
+			if r.Method == http.MethodPost {
+				s.combinedAuthMiddleware(s.handleClearLogs)(w, r)
+				return
+			}
+		} else {
+			s.combinedAuthMiddleware(s.handleGetLogs)(w, r)
+			return
+		}
+		return
+	case strings.HasPrefix(path, "/dashboard"):
+		if s.config.Dashboard.Enabled {
+			s.handleDashboard(w, r)
 			return
 		}
 	}
@@ -150,6 +370,14 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 				failed(s.Errorf("access to '%s' denied", addr))
 				return
 			}
+
+			// Check port reservations for the local port
+			if localPort, err := strconv.Atoi(r.LocalPort); err == nil {
+				if available, errMsg := s.isPortAvailableForUser(localPort, user.Name); !available {
+					failed(s.Errorf("port reservation error: %s", errMsg))
+					return
+				}
+			}
 		}
 		//confirm reverse tunnels are allowed
 		if !s.config.Reverse {
@@ -159,6 +387,13 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 		}
 		//confirm reverse tunnel is available
 		if !r.CanListen() {
+
+			// initialize capture service if not set
+			if s.config.Dashboard.Enabled && s.capture == nil {
+				// defaults: last 500 events, 64KB per event
+				s.capture = capture.NewService(500, 64*1024)
+			}
+
 			failed(s.Errorf("Server cannot listen on %s", r.String()))
 			return
 		}
@@ -166,18 +401,77 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 	//successfuly validated config!
 	r.Reply(true, nil)
 	//tunnel per ssh connection
-	tunnel := tunnel.New(tunnel.Config{
-		Logger:    l,
-		Inbound:   s.config.Reverse,
-		Outbound:  true, //server always accepts outbound
-		KeepAlive: s.config.KeepAlive,
-		TlsConf:   s.config.TlsConf,
+	// URL-safe tunnel ID
+	tunnelID := fmt.Sprintf("sess-%d", id)
+	var tapFactory tunnel.TapFactory
+	if s.config.Dashboard.Enabled && s.capture != nil {
+		tapFactory = capture.NewTapFactory(s.capture, tunnelID, func() string {
+			if user != nil {
+				return user.Name
+			}
+			return ""
+		}(), 500)
+	}
+	tun := tunnel.New(tunnel.Config{
+		Logger:     l,
+		Inbound:    s.config.Reverse,
+		Outbound:   true, //server always accepts outbound
+		KeepAlive:  s.config.KeepAlive,
+		TlsConf:    s.config.TlsConf,
+		TapFactory: tapFactory,
+		Username: func() string {
+			if user != nil {
+				return user.Name
+			}
+			return ""
+		}(),
 	})
+
+	// Upsert active tunnel into DB so it appears in dashboard
+	if s.db != nil {
+		// Only record the first remote for now to fill ports/hosts
+		var localPort, remotePort int
+		if len(c.Remotes) > 0 {
+			lp, _ := strconv.Atoi(c.Remotes[0].LocalPort)
+			rp, _ := strconv.Atoi(c.Remotes[0].RemotePort)
+			localPort, remotePort = lp, rp
+		}
+		t := &database.Tunnel{ID: tunnelID, Username: tun.Username, LocalPort: localPort, LocalHost: c.Remotes[0].LocalHost, RemotePort: remotePort, RemoteHost: c.Remotes[0].RemoteHost, Status: "open"}
+		if e := s.db.CreateTunnel(t); e != nil {
+			_ = s.db.UpdateTunnel(t)
+		}
+	}
+
 	//bind
 	eg, ctx := errgroup.WithContext(req.Context())
 	eg.Go(func() error {
+
+		// Track live tunnel in memory (for dashboard when DB is off)
+		if s.db == nil {
+			var localPort, remotePort int
+			var localHost, remoteHost string
+			if len(c.Remotes) > 0 {
+				localHost = c.Remotes[0].LocalHost
+				remoteHost = c.Remotes[0].RemoteHost
+				lp, _ := strconv.Atoi(c.Remotes[0].LocalPort)
+				rp, _ := strconv.Atoi(c.Remotes[0].RemotePort)
+				localPort, remotePort = lp, rp
+			}
+			s.liveMu.Lock()
+			s.liveTunnels[tunnelID] = &database.Tunnel{ID: tunnelID, Username: tun.Username, LocalPort: localPort, LocalHost: localHost, RemotePort: remotePort, RemoteHost: remoteHost, Status: "open", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+			s.liveMu.Unlock()
+			defer func() {
+				s.liveMu.Lock()
+				if t, ok := s.liveTunnels[tunnelID]; ok {
+					t.Status = "inactive"
+					t.UpdatedAt = time.Now()
+				}
+				s.liveMu.Unlock()
+			}()
+		}
+
 		//connected, handover ssh connection for tunnel to use, and block
-		return tunnel.BindSSH(ctx, sshConn, reqs, chans)
+		return tun.BindSSH(ctx, sshConn, reqs, chans)
 	})
 	eg.Go(func() error {
 		//connected, setup reversed-remotes?
@@ -186,9 +480,19 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 			return nil
 		}
 		//block
-		return tunnel.BindRemotes(ctx, serverInbound)
+		return tun.BindRemotes(ctx, serverInbound)
 	})
 	err = eg.Wait()
+	// Persist/update active tunnel info in DB if configured
+	if s.db != nil {
+		// Update status only; creation happens on open
+		status := "closed"
+		if err != nil && !strings.HasSuffix(err.Error(), "EOF") {
+			status = "error"
+		}
+		t := &database.Tunnel{ID: tunnelID, Username: tun.Username, Status: status}
+		_ = s.db.UpdateTunnel(t)
+	}
 	if err != nil && !strings.HasSuffix(err.Error(), "EOF") {
 		l.Debugf("Closed connection (%s)", err)
 	} else {

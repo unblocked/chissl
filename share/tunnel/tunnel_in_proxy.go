@@ -3,6 +3,7 @@ package tunnel
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -156,7 +157,21 @@ func (p *Proxy) pipeRemote(ctx context.Context, src io.ReadWriteCloser) {
 		return
 	}
 	go ssh.DiscardRequests(reqs)
-	//then pipe
-	s, r := cio.Pipe(src, dst)
-	l.Debugf("Close (sent %s received %s)", sizestr.ToString(s), sizestr.ToString(r))
+
+	// Attempt to obtain tap factory from ssh tunnel
+	var sent, received int64
+	if t, ok := p.sshTun.(*Tunnel); ok && t.Config.TapFactory != nil {
+		meta := Meta{Username: t.Config.Username, Remote: *p.remote, ConnID: fmt.Sprintf("%d", cid)}
+		tap := t.Config.TapFactory(meta)
+		if tap != nil {
+			tap.OnOpen()
+			sent, received = cio.PipeWithTee(src, dst, tap.SrcWriter(), tap.DstWriter())
+			tap.OnClose(sent, received)
+			l.Debugf("Close (sent %s received %s)", sizestr.ToString(sent), sizestr.ToString(received))
+			return
+		}
+	}
+	// Fallback: plain pipe
+	sent, received = cio.Pipe(src, dst)
+	l.Debugf("Close (sent %s received %s)", sizestr.ToString(sent), sizestr.ToString(received))
 }

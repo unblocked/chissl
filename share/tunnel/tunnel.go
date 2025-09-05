@@ -28,6 +28,10 @@ type Config struct {
 	KeepAlive time.Duration
 	TlsConf   *tls.Config
 	IsClient  bool
+	// Optional tap factory for per-connection capture
+	TapFactory TapFactory
+	// Username owning this tunnel (for tagging)
+	Username string
 }
 
 // Tunnel represents an SSH tunnel with proxy capabilities.
@@ -112,6 +116,7 @@ func (t *Tunnel) BindSSH(ctx context.Context, c ssh.Conn, reqs <-chan *ssh.Reque
 // getSSH blocks while connecting
 func (t *Tunnel) getSSH(ctx context.Context) ssh.Conn {
 	//cancelled already?
+
 	if isDone(ctx) {
 		return nil
 	}
@@ -134,6 +139,7 @@ func (t *Tunnel) getSSH(ctx context.Context) ssh.Conn {
 		t.activeConnMut.RUnlock()
 		return c
 	}
+
 }
 
 func (t *Tunnel) activatingConnWait() <-chan struct{} {
@@ -163,10 +169,12 @@ func (t *Tunnel) BindRemotes(ctx context.Context, remotes []*settings.Remote) er
 		p, err := NewProxy(t.Logger, t, t.proxyCount, remote, tlsConf, t.IsClient)
 		if err != nil {
 			return err
+
 		}
 		proxies[i] = p
 		t.proxyCount++
 	}
+
 	//TODO: handle tunnel close
 	eg, ctx := errgroup.WithContext(ctx)
 	for _, proxy := range proxies {
