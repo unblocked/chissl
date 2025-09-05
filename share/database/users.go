@@ -28,10 +28,10 @@ func (d *SQLDatabase) CreateUser(user *User) error {
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = time.Now()
 
-	query := `INSERT INTO users (username, password, is_admin, addresses, created_at, updated_at) 
-			  VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+	query := `INSERT INTO users (username, password, email, display_name, is_admin, addresses, created_at, updated_at)
+			  VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`
 
-	err := d.db.QueryRow(query, user.Username, user.Password, user.IsAdmin,
+	err := d.db.QueryRow(query, user.Username, user.Password, user.Email, user.DisplayName, user.IsAdmin,
 		user.Addresses, user.CreatedAt, user.UpdatedAt).Scan(&user.ID)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)

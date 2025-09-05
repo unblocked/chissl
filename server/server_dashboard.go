@@ -323,11 +323,7 @@ function loadDashboard() {
         '<div id="sso-banner"></div>' +
         '</div>' +
         '</div>' +
-        '<div id="port-info-banner-row" class="row">' +
-        '<div class="col-12">' +
-        '<div id="port-info-banner"></div>' +
-        '</div>' +
-        '</div>' +
+
         '<div class="row">' +
         '<div class="col-12">' +
         '<div class="card">' +
@@ -413,7 +409,6 @@ function loadDashboard() {
     $('#main-content').html(content);
     loadStats();
     loadQuickAccess();
-    loadPortReservations();
     loadSSOBanner();
     loadDashboardPortAccess();
 }
@@ -517,7 +512,7 @@ function loadPortReservations() {
                     '</div>';
             } else {
                 // Show general port info for users without reservations
-                $.get('/api/settings/reserved-ports-threshold')
+                $.get('/api/user/reserved-ports-threshold')
                     .done(function(thresholdData) {
                         var threshold = thresholdData.threshold || 10000;
                         bannerHtml = '<div class="alert alert-info alert-dismissible">' +
@@ -655,9 +650,9 @@ function loadUsersView() {
         '</div></div>' +
         '<div class="card-body">' +
         '<table class="table table-bordered table-striped" id="users-table">' +
-        '<thead><tr><th>Username</th><th>Admin</th><th>Port Reservations</th><th>Created</th><th>Actions</th></tr></thead>' +
+        '<thead><tr><th>Username</th><th>Admin</th><th>Auth Source</th><th>Port Reservations</th><th>Created</th><th>Actions</th></tr></thead>' +
         '<tbody id="users-tbody">' +
-        '<tr><td colspan="5" class="text-center">Loading...</td></tr>' +
+        '<tr><td colspan="6" class="text-center">Loading...</td></tr>' +
         '</tbody></table>' +
         '</div></div></div></div>';
     $('#main-content').html(content);
@@ -791,11 +786,29 @@ function loadSettingsView() {
         '<small class="form-text text-muted">Ports 0 to <span id="thresholdDisplay">10000</span> are reserved for admin assignment (max: 65535)</small>' +
         '</div>' +
         '</div></div></div>' +
+        '<div class="col-md-6">' +
+        '<div class="card">' +
+        '<div class="card-header">' +
+        '<h3 class="card-title">SSO Configuration</h3>' +
+        '<div class="card-tools">' +
+        '<button class="btn btn-primary btn-sm" onclick="showSSOConfigModal()">' +
+        '<i class="fas fa-plus"></i> Add Provider</button>' +
+        '<button class="btn btn-secondary btn-sm ml-2" onclick="loadSSOConfigs()">' +
+        '<i class="fas fa-sync"></i> Refresh</button>' +
+        '</div>' +
+        '</div>' +
+        '<div class="card-body">' +
+        '<div id="sso-configs-container">' +
+        '<div class="text-center text-muted">Loading SSO configurations...</div>' +
+        '</div>' +
+        '</div>' +
+        '</div></div>' +
         '</div>'; // Close the row
 
     $('#main-content').html(content);
     loadSettingsSystemInfo();
     loadReservedPortsThreshold();
+    loadSSOConfigs();
 }
 
 function loadUserSettingsView() {
@@ -888,7 +901,7 @@ function loadSettingsSystemInfo() {
 }
 
 function loadReservedPortsThreshold() {
-    $.get('/api/settings/reserved-ports-threshold')
+    $.get('/api/user/reserved-ports-threshold')
         .done(function(data) {
             var threshold = data.threshold || 10000;
             $('#reservedPortsThreshold').val(threshold);
@@ -922,7 +935,12 @@ function updateReservedPortsThreshold() {
     });
 }
 
-function loadPortReservations() {
+function loadAdminPortReservations() {
+    // Only load if user is admin
+    if (!window.isAdmin) {
+        return;
+    }
+
     $.get('/api/port-reservations')
         .done(function(data) {
             var tbody = '';
@@ -969,7 +987,7 @@ function loadUserPortInfo() {
                     '</div>';
             } else {
                 // Show general port info for users without reservations
-                $.get('/api/settings/reserved-ports-threshold')
+                $.get('/api/user/reserved-ports-threshold')
                     .done(function(thresholdData) {
                         var threshold = thresholdData.threshold || 10000;
                         portInfoHtml = '<div class="alert alert-info">' +
@@ -1077,7 +1095,7 @@ function loadDashboardPortAccess() {
 
 function loadGeneralPortInfo() {
     // Show general port info for users without reservations
-    $.get('/api/settings/reserved-ports-threshold')
+    $.get('/api/user/reserved-ports-threshold')
         .done(function(thresholdData) {
             var threshold = thresholdData.threshold || 10000;
             var portInfoHtml = '<div class="alert alert-info mb-0">' +
@@ -1136,13 +1154,21 @@ function loadTunnelsData() {
 }
 
 function loadUsersData() {
-    // Load users and port reservations in parallel
+    // Only load if user is admin
+    if (!window.isAdmin) {
+        $('#users-tbody').html('<tr><td colspan="6" class="text-center text-warning">Admin access required</td></tr>');
+        return;
+    }
+
+    // Load users, port reservations, and auth sources in parallel
     $.when(
         $.get('/users'),
-        $.get('/api/port-reservations')
-    ).done(function(usersResponse, reservationsResponse) {
+        $.get('/api/port-reservations'),
+        $.get('/api/sso/user-sources')
+    ).done(function(usersResponse, reservationsResponse, authSourcesResponse) {
         var users = usersResponse[0];
         var reservations = reservationsResponse[0];
+        var authSources = authSourcesResponse[0];
 
         // Create a map of username to reservations
         var userReservations = {};
@@ -1155,6 +1181,14 @@ function loadUsersData() {
             });
         }
 
+        // Create a map of username to auth source
+        var userAuthSources = {};
+        if (authSources && authSources.length > 0) {
+            authSources.forEach(function(source) {
+                userAuthSources[source.username] = source;
+            });
+        }
+
         var tbody = '';
         if (users && users.length > 0) {
             users.forEach(function(user) {
@@ -1163,6 +1197,20 @@ function loadUsersData() {
                 var adminBadge = isAdmin ? 'success' : 'secondary';
                 var adminText = isAdmin ? 'Yes' : 'No';
                 var createdAt = user.created_at ? new Date(user.created_at).toLocaleString() : 'N/A';
+
+                // Build auth source display
+                var authSource = userAuthSources[username];
+                var authSourceHtml = '';
+                if (authSource) {
+                    var sourceText = authSource.auth_source.toUpperCase();
+                    var sourceBadge = authSource.auth_source === 'local' ? 'secondary' : 'primary';
+                    var sourceIcon = authSource.auth_source === 'local' ? 'fas fa-user' : 'fas fa-cloud';
+                    authSourceHtml = '<span class="badge badge-' + sourceBadge + '">' +
+                        '<i class="' + sourceIcon + '"></i> ' + sourceText + '</span>';
+                } else {
+                    authSourceHtml = '<span class="badge badge-secondary">' +
+                        '<i class="fas fa-user"></i> LOCAL</span>';
+                }
 
                 // Build port reservations display
                 var portReservationsHtml = '';
@@ -1194,16 +1242,17 @@ function loadUsersData() {
                 tbody += '<tr>' +
                     '<td>' + username + '</td>' +
                     '<td><span class="badge badge-' + adminBadge + '">' + adminText + '</span></td>' +
+                    '<td>' + authSourceHtml + '</td>' +
                     '<td>' + portReservationsHtml + '</td>' +
                     '<td>' + createdAt + '</td>' +
                     '<td>' + actionButtons + '</td></tr>';
             });
         } else {
-            tbody = '<tr><td colspan="5" class="text-center">No users found</td></tr>';
+            tbody = '<tr><td colspan="6" class="text-center">No users found</td></tr>';
         }
         $('#users-tbody').html(tbody);
     }).fail(function() {
-        $('#users-tbody').html('<tr><td colspan="5" class="text-center text-danger">Failed to load users</td></tr>');
+        $('#users-tbody').html('<tr><td colspan="6" class="text-center text-danger">Failed to load users</td></tr>');
     });
 }
 
@@ -1906,6 +1955,325 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+// SSO Configuration Functions
+function loadSSOConfigs() {
+    $.get('/api/sso/configs')
+        .done(function(configs) {
+            var html = '';
+            if (configs && configs.length > 0) {
+                configs.forEach(function(config) {
+                    var statusBadge = config.enabled ? 'success' : 'secondary';
+                    var statusText = config.enabled ? 'Enabled' : 'Disabled';
+                    var providerIcon = getProviderIcon(config.provider);
+                    var providerName = config.provider.charAt(0).toUpperCase() + config.provider.slice(1);
+
+                    html += '<div class="border rounded p-3 mb-3">' +
+                        '<div class="d-flex justify-content-between align-items-center">' +
+                        '<div>' +
+                        '<h6 class="mb-1">' +
+                        '<i class="' + providerIcon + '"></i> ' + providerName + ' SSO' +
+                        '</h6>' +
+                        '<span class="badge badge-' + statusBadge + '">' + statusText + '</span>' +
+                        '</div>' +
+                        '<div class="btn-group btn-group-sm">';
+
+                    if (config.enabled && config.test_url) {
+                        html += '<button class="btn btn-info" onclick="testSSOConfig(\'' + config.provider + '\')">' +
+                            '<i class="fas fa-vial"></i> Test</button>';
+                    }
+
+                    html += '<button class="btn btn-warning" onclick="editSSOConfig(\'' + config.provider + '\')">' +
+                        '<i class="fas fa-edit"></i> Edit</button>' +
+                        '<button class="btn btn-danger" onclick="deleteSSOConfig(\'' + config.provider + '\')">' +
+                        '<i class="fas fa-trash"></i> Delete</button>' +
+                        '</div>' +
+                        '</div>';
+
+                    // Show basic config info
+                    if (config.config) {
+                        html += '<div class="mt-2 text-muted small">';
+                        if (config.provider === 'scim' || config.provider === 'okta') {
+                            html += 'Client ID: ' + (config.config.client_id || 'Not configured');
+                        } else if (config.provider === 'auth0') {
+                            html += 'Domain: ' + (config.config.domain || 'Not configured');
+                        }
+                        html += '</div>';
+                    }
+
+                    html += '</div>';
+                });
+            } else {
+                html = '<div class="text-center text-muted py-4">' +
+                    '<i class="fas fa-shield-alt fa-3x mb-3"></i>' +
+                    '<p>No SSO providers configured</p>' +
+                    '<button class="btn btn-primary" onclick="showSSOConfigModal()">' +
+                    '<i class="fas fa-plus"></i> Add Your First Provider</button>' +
+                    '</div>';
+            }
+            $('#sso-configs-container').html(html);
+        })
+        .fail(function() {
+            $('#sso-configs-container').html('<div class="text-danger text-center">Failed to load SSO configurations</div>');
+        });
+}
+
+function getProviderIcon(provider) {
+    switch(provider) {
+        case 'okta': return 'fab fa-okta';
+        case 'auth0': return 'fas fa-shield-alt';
+        case 'scim': return 'fas fa-users-cog';
+        case 'azure': return 'fab fa-microsoft';
+        default: return 'fas fa-cloud';
+    }
+}
+
+function showSSOConfigModal() {
+    var modalHtml = '<div class="modal fade" id="ssoConfigModal" tabindex="-1" role="dialog">' +
+        '<div class="modal-dialog modal-lg" role="document">' +
+        '<div class="modal-content">' +
+        '<div class="modal-header">' +
+        '<h5 class="modal-title">Configure SSO Provider</h5>' +
+        '<button type="button" class="close" data-dismiss="modal">' +
+        '<span>&times;</span>' +
+        '</button>' +
+        '</div>' +
+        '<div class="modal-body">' +
+        '<form id="ssoConfigForm">' +
+        '<div class="form-group">' +
+        '<label for="ssoProvider">Provider</label>' +
+        '<select class="form-control" id="ssoProvider" onchange="updateSSOConfigForm()">' +
+        '<option value="">Select a provider...</option>' +
+        '<option value="okta">Okta</option>' +
+        '<option value="scim">Generic SCIM</option>' +
+        '<option value="auth0">Auth0</option>' +
+        '</select>' +
+        '</div>' +
+        '<div id="ssoConfigFields"></div>' +
+        '<div class="form-group">' +
+        '<div class="form-check">' +
+        '<input type="checkbox" class="form-check-input" id="ssoEnabled">' +
+        '<label class="form-check-label" for="ssoEnabled">Enable this SSO provider</label>' +
+        '</div>' +
+        '</div>' +
+        '</form>' +
+        '</div>' +
+        '<div class="modal-footer">' +
+        '<button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>' +
+        '<button type="button" class="btn btn-primary" onclick="saveSSOConfig()">Save Configuration</button>' +
+        '</div>' +
+        '</div>' +
+        '</div>' +
+        '</div>';
+
+    $('body').append(modalHtml);
+    $('#ssoConfigModal').modal('show');
+
+    // Remove modal from DOM when closed
+    $('#ssoConfigModal').on('hidden.bs.modal', function() {
+        $(this).remove();
+    });
+}
+
+function updateSSOConfigForm() {
+    var provider = $('#ssoProvider').val();
+    var fieldsHtml = '';
+
+    if (provider === 'okta' || provider === 'scim') {
+        fieldsHtml = '<div class="alert alert-info">' +
+            '<strong>Step-by-step Setup:</strong><br>' +
+            '1. Create an OAuth2 application in your ' + provider.charAt(0).toUpperCase() + provider.slice(1) + ' admin console<br>' +
+            '2. Set the redirect URI to: <code>' + window.location.origin + '/auth/scim/callback</code><br>' +
+            '3. Copy the configuration details below' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label for="clientId">Client ID *</label>' +
+            '<input type="text" class="form-control" id="clientId" placeholder="Your OAuth2 Client ID" required>' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label for="clientSecret">Client Secret *</label>' +
+            '<input type="password" class="form-control" id="clientSecret" placeholder="Your OAuth2 Client Secret" required>' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label for="authUrl">Authorization URL *</label>' +
+            '<input type="url" class="form-control" id="authUrl" placeholder="https://your-domain.okta.com/oauth2/v1/authorize" required>' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label for="tokenUrl">Token URL *</label>' +
+            '<input type="url" class="form-control" id="tokenUrl" placeholder="https://your-domain.okta.com/oauth2/v1/token" required>' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label for="userInfoUrl">User Info URL *</label>' +
+            '<input type="url" class="form-control" id="userInfoUrl" placeholder="https://your-domain.okta.com/oauth2/v1/userinfo" required>' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label for="scopes">Scopes</label>' +
+            '<input type="text" class="form-control" id="scopes" value="openid profile email" placeholder="openid profile email">' +
+            '<small class="form-text text-muted">Space-separated list of OAuth2 scopes</small>' +
+            '</div>';
+
+        if (provider === 'okta') {
+            fieldsHtml += '<div class="form-group">' +
+                '<label for="tenantId">Tenant ID (Optional)</label>' +
+                '<input type="text" class="form-control" id="tenantId" placeholder="Your Okta tenant ID">' +
+                '</div>';
+        }
+    } else if (provider === 'auth0') {
+        fieldsHtml = '<div class="alert alert-info">' +
+            '<strong>Auth0 Setup:</strong><br>' +
+            '1. Create an application in your Auth0 dashboard<br>' +
+            '2. Set the callback URL to: <code>' + window.location.origin + '/auth/auth0/callback</code><br>' +
+            '3. Copy your application details below' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label for="auth0Domain">Domain *</label>' +
+            '<input type="text" class="form-control" id="auth0Domain" placeholder="your-tenant.auth0.com" required>' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label for="auth0ClientId">Client ID *</label>' +
+            '<input type="text" class="form-control" id="auth0ClientId" placeholder="Your Auth0 Client ID" required>' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label for="auth0ClientSecret">Client Secret *</label>' +
+            '<input type="password" class="form-control" id="auth0ClientSecret" placeholder="Your Auth0 Client Secret" required>' +
+            '</div>';
+    }
+
+    $('#ssoConfigFields').html(fieldsHtml);
+}
+
+function saveSSOConfig() {
+    var provider = $('#ssoProvider').val();
+    if (!provider) {
+        alert('Please select a provider');
+        return;
+    }
+
+    var enabled = $('#ssoEnabled').is(':checked');
+    var config = {};
+
+    if (provider === 'okta' || provider === 'scim') {
+        var clientId = $('#clientId').val();
+        var clientSecret = $('#clientSecret').val();
+        var authUrl = $('#authUrl').val();
+        var tokenUrl = $('#tokenUrl').val();
+        var userInfoUrl = $('#userInfoUrl').val();
+
+        if (!clientId || !clientSecret || !authUrl || !tokenUrl || !userInfoUrl) {
+            alert('Please fill in all required fields');
+            return;
+        }
+
+        config = {
+            client_id: clientId,
+            client_secret: clientSecret,
+            auth_url: authUrl,
+            token_url: tokenUrl,
+            user_info_url: userInfoUrl,
+            redirect_url: window.location.origin + '/auth/scim/callback',
+            scopes: $('#scopes').val().split(' ').filter(s => s.length > 0)
+        };
+
+        if (provider === 'okta' && $('#tenantId').val()) {
+            config.tenant_id = $('#tenantId').val();
+        }
+    } else if (provider === 'auth0') {
+        var domain = $('#auth0Domain').val();
+        var clientId = $('#auth0ClientId').val();
+        var clientSecret = $('#auth0ClientSecret').val();
+
+        if (!domain || !clientId || !clientSecret) {
+            alert('Please fill in all required fields');
+            return;
+        }
+
+        config = {
+            domain: domain,
+            client_id: clientId,
+            client_secret: clientSecret,
+            redirect_url: window.location.origin + '/auth/auth0/callback',
+            scopes: ['openid', 'profile', 'email']
+        };
+    }
+
+    var requestData = {
+        provider: provider,
+        enabled: enabled,
+        config: config
+    };
+
+    $.ajax({
+        url: '/api/sso/configs',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(requestData)
+    })
+    .done(function() {
+        $('#ssoConfigModal').modal('hide');
+        alert('SSO configuration saved successfully!');
+        loadSSOConfigs();
+    })
+    .fail(function(xhr) {
+        alert('Failed to save SSO configuration: ' + (xhr.responseText || 'Unknown error'));
+    });
+}
+
+function editSSOConfig(provider) {
+    $.get('/api/sso/configs/' + provider)
+        .done(function(config) {
+            showSSOConfigModal();
+
+            // Wait for modal to be shown, then populate fields
+            $('#ssoConfigModal').on('shown.bs.modal', function() {
+                $('#ssoProvider').val(config.provider).trigger('change');
+                $('#ssoEnabled').prop('checked', config.enabled);
+
+                // Populate provider-specific fields
+                setTimeout(function() {
+                    if (config.provider === 'okta' || config.provider === 'scim') {
+                        $('#clientId').val(config.config.client_id || '');
+                        $('#clientSecret').val(config.config.client_secret || '');
+                        $('#authUrl').val(config.config.auth_url || '');
+                        $('#tokenUrl').val(config.config.token_url || '');
+                        $('#userInfoUrl').val(config.config.user_info_url || '');
+                        $('#scopes').val((config.config.scopes || []).join(' '));
+                        if (config.provider === 'okta') {
+                            $('#tenantId').val(config.config.tenant_id || '');
+                        }
+                    } else if (config.provider === 'auth0') {
+                        $('#auth0Domain').val(config.config.domain || '');
+                        $('#auth0ClientId').val(config.config.client_id || '');
+                        $('#auth0ClientSecret').val(config.config.client_secret || '');
+                    }
+                }, 100);
+            });
+        })
+        .fail(function() {
+            alert('Failed to load SSO configuration');
+        });
+}
+
+function deleteSSOConfig(provider) {
+    if (confirm('Are you sure you want to delete the ' + provider.toUpperCase() + ' SSO configuration?')) {
+        $.ajax({
+            url: '/api/sso/configs/' + provider,
+            method: 'DELETE'
+        })
+        .done(function() {
+            alert('SSO configuration deleted successfully');
+            loadSSOConfigs();
+        })
+        .fail(function(xhr) {
+            alert('Failed to delete SSO configuration: ' + (xhr.responseText || 'Unknown error'));
+        });
+    }
+}
+
+function testSSOConfig(provider) {
+    if (confirm('This will open a new window to test the SSO login. Continue?')) {
+        window.open('/api/sso/configs/' + provider + '/test', '_blank');
+    }
+}
+
 function formatBytes(bytes) {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -2209,6 +2577,12 @@ function showAddPortReservationModal(preselectedUser) {
 }
 
 function createPortReservation() {
+    // Only allow if user is admin
+    if (!window.isAdmin) {
+        alert('Admin access required');
+        return;
+    }
+
     var username = $('#reservationUsername').val().trim();
     var startPort = parseInt($('#reservationStartPort').val());
     var endPort = parseInt($('#reservationEndPort').val());
@@ -2252,13 +2626,19 @@ function createPortReservation() {
 }
 
 function deletePortReservation(reservationId) {
+    // Only allow if user is admin
+    if (!window.isAdmin) {
+        alert('Admin access required');
+        return;
+    }
+
     if (confirm('Are you sure you want to remove this port reservation? The user will lose access to these ports.')) {
         $.ajax({
             url: '/api/port-reservations/' + reservationId,
             method: 'DELETE'
         })
         .done(function() {
-            loadPortReservations();
+            loadAdminPortReservations();
             alert('Port reservation removed successfully');
         })
         .fail(function(xhr) {
@@ -2268,6 +2648,12 @@ function deletePortReservation(reservationId) {
 }
 
 function removeUserPortReservations(username) {
+    // Only allow if user is admin
+    if (!window.isAdmin) {
+        alert('Admin access required');
+        return;
+    }
+
     if (confirm('Are you sure you want to remove ALL port reservations for user "' + username + '"? This will revoke their access to all reserved ports.')) {
         // Get all reservations for this user and delete them
         $.get('/api/port-reservations')
@@ -2585,6 +2971,11 @@ func (s *Server) serveDashboardLogin(w http.ResponseWriter, r *http.Request) {
         <div class="card-body login-card-body">
             <p class="login-box-msg">Sign in to access the dashboard</p>
             <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+
+            <!-- SSO Login Options -->
+            <div id="sso-login-options" class="mb-3"></div>
+
+            <!-- Traditional Login Form -->
             <form method="post">
                 <div class="input-group mb-3">
                     <input type="text" name="username" class="form-control" placeholder="Username" required>
@@ -2622,7 +3013,64 @@ $(document).ready(function() {
     if (error === 'invalid_credentials') {
         $('#error-message').text('Invalid username or password').show();
     }
+
+    // Load SSO login options
+    loadSSOLoginOptions();
 });
+
+function loadSSOLoginOptions() {
+    $.get('/api/sso/enabled')
+        .done(function(configs) {
+            var html = '';
+            if (configs && configs.length > 0) {
+                var enabledConfigs = configs.filter(function(config) {
+                    return config.enabled;
+                });
+
+                if (enabledConfigs.length > 0) {
+                    html += '<div class="text-center mb-3">';
+                    enabledConfigs.forEach(function(config) {
+                        var providerIcon = getProviderIcon(config.provider);
+                        var providerName = config.provider.charAt(0).toUpperCase() + config.provider.slice(1);
+                        var loginUrl = getSSOLoginUrl(config.provider);
+
+                        html += '<a href="' + loginUrl + '" class="btn btn-outline-primary btn-block mb-2">' +
+                            '<i class="' + providerIcon + '"></i> Sign in with ' + providerName +
+                            '</a>';
+                    });
+                    html += '<hr class="my-3"><div class="text-muted text-center small">Or sign in with your account</div></div>';
+                }
+            }
+            $('#sso-login-options').html(html);
+        })
+        .fail(function() {
+            // Don't show error for SSO options as it's optional
+        });
+}
+
+function getProviderIcon(provider) {
+    switch(provider) {
+        case 'okta': return 'fab fa-okta';
+        case 'auth0': return 'fas fa-shield-alt';
+        case 'scim': return 'fas fa-users-cog';
+        case 'azure': return 'fab fa-microsoft';
+        default: return 'fas fa-cloud';
+    }
+}
+
+function getSSOLoginUrl(provider) {
+    switch(provider) {
+        case 'okta':
+        case 'scim':
+            return '/auth/scim/login';
+        case 'auth0':
+            return '/auth/auth0/login';
+        case 'azure':
+            return '/auth/azure/login';
+        default:
+            return '/auth/' + provider + '/login';
+    }
+}
 </script>
 </body>
 </html>`

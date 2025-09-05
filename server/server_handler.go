@@ -224,6 +224,10 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 				s.userAuthMiddleware(s.handleListUserPortReservations)(w, r)
 				return
 			}
+			if strings.HasSuffix(path, "/reserved-ports-threshold") {
+				s.userAuthMiddleware(s.handleGetReservedPortsThreshold)(w, r)
+				return
+			}
 		case http.MethodPost:
 			if strings.Contains(path, "/tokens") {
 				s.userAuthMiddleware(s.handleCreateUserToken)(w, r)
@@ -283,6 +287,57 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			s.combinedAuthMiddleware(s.handleGetLogs)(w, r)
+			return
+		}
+		return
+	case strings.HasPrefix(path, "/auth/"):
+		// Handle SSO authentication routes
+		if strings.HasPrefix(path, "/auth/scim/") {
+			if path == "/auth/scim/login" {
+				s.handleSCIMLogin(w, r)
+				return
+			} else if path == "/auth/scim/callback" {
+				s.handleSCIMCallback(w, r)
+				return
+			}
+		} else if strings.HasPrefix(path, "/auth/auth0/") {
+			if path == "/auth/auth0/login" {
+				s.handleAuth0Login(w, r)
+				return
+			} else if path == "/auth/auth0/callback" {
+				s.handleAuth0Callback(w, r)
+				return
+			}
+		}
+		http.NotFound(w, r)
+		return
+	case strings.HasPrefix(path, "/api/sso"):
+		if strings.HasPrefix(path, "/api/sso/configs") {
+			if strings.Contains(path, "/test") {
+				s.combinedAuthMiddleware(s.handleTestSSOConfig)(w, r)
+				return
+			}
+			switch r.Method {
+			case http.MethodGet:
+				if len(strings.Split(path, "/")) > 4 {
+					s.combinedAuthMiddleware(s.handleGetSSOConfig)(w, r)
+				} else {
+					s.combinedAuthMiddleware(s.handleListSSOConfigs)(w, r)
+				}
+				return
+			case http.MethodPost:
+				s.combinedAuthMiddleware(s.handleCreateSSOConfig)(w, r)
+				return
+			case http.MethodDelete:
+				s.combinedAuthMiddleware(s.handleDeleteSSOConfig)(w, r)
+				return
+			}
+		} else if strings.HasPrefix(path, "/api/sso/user-sources") {
+			s.combinedAuthMiddleware(s.handleListUserAuthSources)(w, r)
+			return
+		} else if path == "/api/sso/enabled" {
+			// Public endpoint for enabled SSO configurations (for login page)
+			s.handleListEnabledSSOConfigs(w, r)
 			return
 		}
 		return

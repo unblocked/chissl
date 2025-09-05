@@ -88,6 +88,18 @@ type Database interface {
 	CheckUserTunnelLimit(username string) (bool, error)
 	CheckUserListenerLimit(username string) (bool, error)
 	GetSettingInt(key string, defaultValue int) (int, error)
+
+	// SSO configuration management
+	CreateSSOConfig(config *SSOConfig) error
+	GetSSOConfig(provider SSOProvider) (*SSOConfig, error)
+	ListSSOConfigs() ([]*SSOConfig, error)
+	DeleteSSOConfig(provider SSOProvider) error
+
+	// User authentication sources
+	CreateUserAuthSource(source *UserAuthSource) error
+	GetUserAuthSource(username string) (*UserAuthSource, error)
+	UpdateUserAuthSource(source *UserAuthSource) error
+	ListUserAuthSources() ([]*UserAuthSource, error)
 }
 
 // User represents a user in the database

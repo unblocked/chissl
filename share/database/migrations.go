@@ -173,6 +173,31 @@ func (d *SQLDatabase) getSQLiteMigrations() []string {
 		 VALUES ('default_max_tunnels', '10', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		`INSERT OR IGNORE INTO settings (key, value, created_at, updated_at)
 		 VALUES ('default_max_listeners', '5', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+
+		// Create SSO configuration table
+		`CREATE TABLE IF NOT EXISTS sso_config (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			provider TEXT NOT NULL,
+			enabled BOOLEAN DEFAULT FALSE,
+			config_json TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
+		// Create user authentication sources table
+		`CREATE TABLE IF NOT EXISTS user_auth_sources (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL,
+			auth_source TEXT NOT NULL DEFAULT 'local',
+			external_id TEXT,
+			provider_data TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
+			UNIQUE(username, auth_source)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_auth_sources_username ON user_auth_sources(username)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_auth_sources_external_id ON user_auth_sources(external_id)`,
 	}
 }
 
@@ -301,6 +326,31 @@ func (d *SQLDatabase) getPostgresMigrations() []string {
 		`INSERT INTO settings (key, value, created_at, updated_at)
 		 VALUES ('default_max_listeners', '5', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		 ON CONFLICT (key) DO NOTHING`,
+
+		// Create SSO configuration table (PostgreSQL)
+		`CREATE TABLE IF NOT EXISTS sso_config (
+			id SERIAL PRIMARY KEY,
+			provider VARCHAR(50) NOT NULL,
+			enabled BOOLEAN DEFAULT FALSE,
+			config_json TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+
+		// Create user authentication sources table (PostgreSQL)
+		`CREATE TABLE IF NOT EXISTS user_auth_sources (
+			id SERIAL PRIMARY KEY,
+			username VARCHAR(255) NOT NULL,
+			auth_source VARCHAR(50) NOT NULL DEFAULT 'local',
+			external_id VARCHAR(255),
+			provider_data TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
+			UNIQUE(username, auth_source)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_auth_sources_username ON user_auth_sources(username)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_auth_sources_external_id ON user_auth_sources(external_id)`,
 
 		// Create user_tokens table
 		`CREATE TABLE IF NOT EXISTS user_tokens (

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -345,7 +346,14 @@ func getUsernameFromPath(path string) (string, error) {
 	if matches == nil {
 		return "", fmt.Errorf("invalid URL format: %s", path)
 	}
-	return matches[1], nil
+
+	// URL decode the username to handle special characters
+	username, err := url.QueryUnescape(matches[1])
+	if err != nil {
+		return "", fmt.Errorf("failed to decode username: %w", err)
+	}
+
+	return username, nil
 }
 
 func (s *Server) handleGetUsers(w http.ResponseWriter, r *http.Request) {
