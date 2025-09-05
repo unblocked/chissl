@@ -29,6 +29,9 @@ linux-on-darwin: lint
 linux-on-darwin-with-cgo: lint
 	GOARCH=amd64 GOOS=linux CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_amd64 .
 
+linux-on-darwin-with-cgo-with-tests: lint security-tests
+	GOARCH=amd64 GOOS=linux CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_amd64 .
+
 
 make-linux-in-docker-on-darwin: lint
 	@docker run --rm -v "$$PWD":/src -w /src golang:1.22-bookworm bash -lc "set -euo pipefail; apt-get update; apt-get install -y gcc g++ make pkg-config; make linux"
@@ -58,10 +61,15 @@ test: ## Run unit tests
 	@go tool cover -html=${DIR}/coverage.out -o ${DIR}/coverage.html
 	#@gocover-cobertura < ${DIR}/coverage.out > ${DIR}/coverage.xml
 
+security-tests: ## Run security tests to verify API authorization and authentication
+	@echo "Running security tests..."
+	@go test ./tests -v -timeout 30s
+	@echo "Security tests completed successfully!"
+
 release: lint test
 	goreleaser release --config .github/goreleaser.yml
 
 clean:
 	rm -rf ${DIRBASE}/*
 
-.PHONY: all freebsd linux windows docker dep lint test release clean
+.PHONY: all freebsd linux windows docker dep lint test security-tests linux-on-darwin-with-cgo-with-tests release clean

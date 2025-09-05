@@ -100,6 +100,14 @@ type Database interface {
 	GetUserAuthSource(username string) (*UserAuthSource, error)
 	UpdateUserAuthSource(source *UserAuthSource) error
 	ListUserAuthSources() ([]*UserAuthSource, error)
+	ListUserAuthSourcesByUsername(username string) ([]*UserAuthSource, error)
+	DeleteUserAuthSource(id int) error
+
+	// User preferences management
+	GetUserPreference(username, key string) (*UserPreference, error)
+	SetUserPreference(username, key, value string) error
+	DeleteUserPreference(username, key string) error
+	ListUserPreferences(username string) ([]*UserPreference, error)
 }
 
 // User represents a user in the database

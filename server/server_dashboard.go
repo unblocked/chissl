@@ -323,16 +323,12 @@ function loadDashboard() {
         '<div id="sso-banner"></div>' +
         '</div>' +
         '</div>' +
-
         '<div class="row">' +
         '<div class="col-12">' +
-        '<div class="card">' +
-        '<div class="card-header">' +
-        '<h3 class="card-title"><i class="fas fa-network-wired"></i> Port Access</h3>' +
+        '<div id="port-access-banner"></div>' +
         '</div>' +
-        '<div class="card-body" id="dashboard-port-access">' +
-        '<div class="text-center text-muted">Loading port information...</div>' +
-        '</div></div></div></div>' +
+        '</div>' +
+
         '<div class="row">' +
         '<div class="col-md-6">' +
         '<div class="card">' +
@@ -410,7 +406,7 @@ function loadDashboard() {
     loadStats();
     loadQuickAccess();
     loadSSOBanner();
-    loadDashboardPortAccess();
+    loadPortAccessBanner();
 }
 
 function loadStats() {
@@ -542,8 +538,82 @@ function formatUptime(seconds) {
     return days + 'd ' + hours + 'h ' + minutes + 'm';
 }
 
+// URL routing and history management
+function updateURL(view) {
+    // Don't update URL if we're navigating from URL (prevents loops)
+    if (window.isNavigatingFromURL) {
+        return;
+    }
+
+    if (history.pushState) {
+        var newUrl = window.location.pathname + '#' + view;
+        history.pushState({view: view}, '', newUrl);
+    } else {
+        window.location.hash = view;
+    }
+}
+
+function loadViewFromURL() {
+    var hash = window.location.hash.substring(1); // Remove #
+    if (!hash) {
+        hash = 'dashboard'; // Default view
+    }
+
+    // Set flag to prevent URL updates during URL-based navigation
+    window.isNavigatingFromURL = true;
+
+    switch(hash) {
+        case 'dashboard':
+            showDashboardFromURL();
+            break;
+        case 'tunnels':
+            showTunnelsFromURL();
+            break;
+        case 'listeners':
+            showListenersFromURL();
+            break;
+        case 'users':
+            if (window.currentUser && window.currentUser.is_admin) {
+                showUsersFromURL();
+            } else {
+                showDashboardFromURL();
+            }
+            break;
+        case 'logs':
+            if (window.currentUser && window.currentUser.is_admin) {
+                showLogsFromURL();
+            } else {
+                showDashboardFromURL();
+            }
+            break;
+        case 'user-settings':
+            showUserSettingsFromURL();
+            break;
+        case 'server-settings':
+            if (window.currentUser && window.currentUser.is_admin) {
+                showServerSettingsFromURL();
+            } else {
+                showDashboardFromURL();
+            }
+            break;
+        default:
+            showDashboardFromURL();
+    }
+
+    // Clear flag after navigation
+    window.isNavigatingFromURL = false;
+}
+
 // Navigation functions
+function clearLogsRefreshInterval() {
+    if (window.logsRefreshInterval) {
+        clearInterval(window.logsRefreshInterval);
+        window.logsRefreshInterval = null;
+    }
+}
+
 function showDashboard() {
+    clearLogsRefreshInterval();
     window.currentView = 'dashboard';
     $('#page-title').text('Dashboard');
     $('.nav-link').removeClass('active');
@@ -552,6 +622,7 @@ function showDashboard() {
 }
 
 function showTunnels() {
+    clearLogsRefreshInterval();
     window.currentView = 'tunnels';
     $('#page-title').text('Tunnels');
     $('.nav-link').removeClass('active');
@@ -560,6 +631,7 @@ function showTunnels() {
 }
 
 function showUsers() {
+    clearLogsRefreshInterval();
     window.currentView = 'users';
     $('#page-title').text('Users');
     $('.nav-link').removeClass('active');
@@ -568,6 +640,7 @@ function showUsers() {
 }
 
 function showListeners() {
+    clearLogsRefreshInterval();
     window.currentView = 'listeners';
     $('#page-title').text('Listeners');
     $('.nav-link').removeClass('active');
@@ -576,6 +649,7 @@ function showListeners() {
 }
 
 function showLogs() {
+    // Don't clear interval for logs page - we want auto-refresh here
     window.currentView = 'logs';
     $('#page-title').text('Logs');
     $('.nav-link').removeClass('active');
@@ -584,6 +658,7 @@ function showLogs() {
 }
 
 function showUserSettings() {
+    clearLogsRefreshInterval();
     window.currentView = 'user-settings';
     $('#page-title').text('User Settings');
     $('.nav-link').removeClass('active');
@@ -592,6 +667,7 @@ function showUserSettings() {
 }
 
 function showServerSettings() {
+    clearLogsRefreshInterval();
     window.currentView = 'server-settings';
     $('#page-title').text('Server Settings');
     $('.nav-link').removeClass('active');
@@ -604,7 +680,69 @@ function showSettings() {
     showServerSettings();
 }
 
+// URL-based navigation functions (don't update URL to prevent loops)
+function showDashboardFromURL() {
+    clearLogsRefreshInterval();
+    window.currentView = 'dashboard';
+    $('#page-title').text('Dashboard');
+    $('.nav-link').removeClass('active');
+    $('[onclick="showDashboard()"]').addClass('active');
+    loadDashboard();
+}
 
+function showTunnelsFromURL() {
+    clearLogsRefreshInterval();
+    window.currentView = 'tunnels';
+    $('#page-title').text('Tunnels');
+    $('.nav-link').removeClass('active');
+    $('[onclick="showTunnels()"]').addClass('active');
+    loadTunnelsView();
+}
+
+function showListenersFromURL() {
+    clearLogsRefreshInterval();
+    window.currentView = 'listeners';
+    $('#page-title').text('Listeners');
+    $('.nav-link').removeClass('active');
+    $('[onclick="showListeners()"]').addClass('active');
+    loadListenersView();
+}
+
+function showUsersFromURL() {
+    clearLogsRefreshInterval();
+    window.currentView = 'users';
+    $('#page-title').text('Users');
+    $('.nav-link').removeClass('active');
+    $('[onclick="showUsers()"]').addClass('active');
+    loadUsersView();
+}
+
+function showLogsFromURL() {
+    // Don't clear interval for logs page - we want auto-refresh here
+    window.currentView = 'logs';
+    $('#page-title').text('Logs');
+    $('.nav-link').removeClass('active');
+    $('[onclick="showLogs()"]').addClass('active');
+    loadLogsView();
+}
+
+function showUserSettingsFromURL() {
+    clearLogsRefreshInterval();
+    window.currentView = 'user-settings';
+    $('#page-title').text('User Settings');
+    $('.nav-link').removeClass('active');
+    $('[onclick="showUserSettings()"]').addClass('active');
+    loadUserSettingsView();
+}
+
+function showServerSettingsFromURL() {
+    clearLogsRefreshInterval();
+    window.currentView = 'server-settings';
+    $('#page-title').text('Server Settings');
+    $('.nav-link').removeClass('active');
+    $('[onclick="showServerSettings()"]').addClass('active');
+    loadServerSettingsView();
+}
 
 // Load different views
 function loadTunnelsView() {
@@ -756,6 +894,14 @@ function loadLogsView() {
         '</div>';
     $('#main-content').html(content);
     loadLogsData();
+
+    // Auto-refresh logs every 10 seconds (less aggressive)
+    if (window.logsRefreshInterval) {
+        clearInterval(window.logsRefreshInterval);
+    }
+    window.logsRefreshInterval = setInterval(function() {
+        loadLogsDataSilently();
+    }, 10000);
 }
 
 function loadSettingsView() {
@@ -853,6 +999,7 @@ function loadUserSettingsView() {
         '</button>' +
         '</div>' +
         '<div class="card-body">' +
+        '<div id="api-token-info-banner"></div>' +
         '<div id="tokens-list">' +
         '<p class="text-muted">Loading tokens...</p>' +
         '</div>' +
@@ -869,6 +1016,7 @@ function loadUserSettingsView() {
 
     $('#main-content').html(content);
     loadUserProfile();
+    loadAPITokenBanner();
     loadUserTokens();
     loadUserPortInfo();
 
@@ -1013,26 +1161,90 @@ function loadUserPortInfo() {
 }
 
 function loadSSOBanner() {
-    // Check if user is authenticated via SSO (Auth0/SCIM)
+    // First check if user is SSO user, then check dismissal
     $.get('/api/user/info')
         .done(function(data) {
-            // Check if user has SSO authentication method
-            if (data.auth_method === 'auth0' || data.auth_method === 'sso') {
-                var bannerHtml = '<div class="alert alert-warning alert-dismissible">' +
-                    '<button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>' +
-                    '<h6><i class="fas fa-key"></i> Token Required for Tunnel Client</h6>' +
-                    '<div>Since you\'re using SSO authentication, you need to generate an API token to use with the tunnel client.</div>' +
-                    '<div class="mt-2">' +
-                    '<button class="btn btn-sm btn-primary" onclick="showUserSettings()">' +
-                    '<i class="fas fa-plus"></i> Generate Token</button>' +
-                    '<small class="ml-2 text-muted">Go to User Settings → API Tokens</small>' +
-                    '</div>' +
-                    '</div>';
-                $('#sso-banner').html(bannerHtml);
+            // Only check dismissal for SSO users
+            if (data.sso_enabled || data.auth_method === 'auth0' || data.auth_method === 'sso') {
+                // Check if user has dismissed the SSO banner
+                $.get('/api/user/preferences/sso_banner_dismissed')
+                    .done(function(prefData) {
+                        if (prefData && prefData.preference_value === 'true') {
+                            return; // Banner was dismissed, don't show it
+                        }
+                        showSSOBannerContent(data);
+                    })
+                    .fail(function() {
+                        // Preference not found, show banner
+                        showSSOBannerContent(data);
+                    });
             }
+            // For non-SSO users, do nothing (no banner needed)
         })
         .fail(function() {
             // Don't show error for SSO banner as it's optional
+        });
+}
+
+function showSSOBannerContent(data) {
+    // Show SSO banner content (data already contains user info)
+    var bannerHtml = '<div class="alert alert-info alert-dismissible" id="sso-info-banner">' +
+        '<button type="button" class="close" onclick="dismissSSOBanner()" aria-hidden="true">&times;</button>' +
+        '<h5><i class="fas fa-key"></i> API Token Required for Client Connections</h5>' +
+        '<p>Since you\'re using SSO authentication, you cannot use your SSO password for client connections. ' +
+        'You must generate an API token and use it as the password when connecting with the chiSSL client.</p>' +
+        '<div class="mt-2">' +
+        '<button class="btn btn-sm btn-primary" onclick="showUserSettings()">' +
+        '<i class="fas fa-plus"></i> Generate API Token</button>' +
+        '<small class="ml-2 text-muted">Go to User Settings → API Tokens</small>' +
+        '</div>' +
+        '</div>';
+    $('#sso-banner').html(bannerHtml);
+}
+
+function dismissSSOBanner() {
+    // Store dismissal in database
+    $.ajax({
+        url: '/api/user/preferences/sso_banner_dismissed',
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify({value: 'true'})
+    })
+    .done(function() {
+        // Hide the banner
+        $('#sso-info-banner').fadeOut();
+    })
+    .fail(function() {
+        console.error('Failed to save banner dismissal preference');
+        // Still hide the banner for this session
+        $('#sso-info-banner').fadeOut();
+    });
+}
+
+function loadAPITokenBanner() {
+    // Show informative banner about API tokens in User Settings
+    $.get('/api/user/info')
+        .done(function(data) {
+            var bannerHtml = '<div class="alert alert-info mb-3">' +
+                '<i class="fas fa-key mr-2"></i>';
+
+            // Add specific note for SSO users
+            if (data.sso_enabled || data.auth_method === 'auth0' || data.auth_method === 'sso') {
+                bannerHtml += '<strong>SSO users:</strong> Use API tokens as passwords for client connections.';
+            } else {
+                bannerHtml += '<strong>API tokens</strong> provide secure authentication for client connections.';
+            }
+
+            bannerHtml += '</div>';
+            $('#api-token-info-banner').html(bannerHtml);
+        })
+        .fail(function() {
+            // Show generic banner if user info fails
+            var bannerHtml = '<div class="alert alert-info mb-3">' +
+                '<i class="fas fa-key mr-2"></i>' +
+                '<strong>API tokens</strong> provide secure authentication for client connections.' +
+                '</div>';
+            $('#api-token-info-banner').html(bannerHtml);
         });
 }
 
@@ -1060,66 +1272,7 @@ function loadSSOBannerForTunnels() {
         });
 }
 
-function loadDashboardPortAccess() {
-    // Load user's port access information for main dashboard
-    $.get('/api/user/port-reservations')
-        .done(function(data) {
-            var portInfoHtml = '';
-            if (data && data.length > 0) {
-                portInfoHtml = '<div class="alert alert-success mb-0">' +
-                    '<h6><i class="fas fa-check-circle"></i> You have reserved ports assigned</h6>';
-                data.forEach(function(reservation) {
-                    portInfoHtml += '<div class="mb-2">' +
-                        '<strong>Ports ' + reservation.start_port + '-' + reservation.end_port + '</strong>';
-                    if (reservation.description) {
-                        portInfoHtml += '<br><small class="text-muted">' + reservation.description + '</small>';
-                    }
-                    portInfoHtml += '</div>';
-                });
-                portInfoHtml += '<small class="text-success">' +
-                    '<i class="fas fa-info-circle"></i> You can create tunnels and listeners on these reserved ports in addition to unreserved ports.' +
-                    '</small>' +
-                    '</div>';
-            } else {
-                // Show general port info for users without reservations
-                loadGeneralPortInfo();
-                return; // Exit early for users without reservations
-            }
-            $('#dashboard-port-access').html(portInfoHtml);
-        })
-        .fail(function() {
-            // If we can't load user reservations, still show general port info
-            loadGeneralPortInfo();
-        });
-}
 
-function loadGeneralPortInfo() {
-    // Show general port info for users without reservations
-    $.get('/api/user/reserved-ports-threshold')
-        .done(function(thresholdData) {
-            var threshold = thresholdData.threshold || 10000;
-            var portInfoHtml = '<div class="alert alert-info mb-0">' +
-                '<h6><i class="fas fa-info-circle"></i> Available Ports</h6>' +
-                '<div><strong>You can use ports ' + threshold + ' and above</strong></div>' +
-                '<div class="mt-2"><small class="text-info">' +
-                '<i class="fas fa-info-circle"></i> Ports 0-' + (threshold-1) + ' are reserved for admin assignment. ' +
-                'Contact your administrator if you need access to reserved ports.' +
-                '</small></div>' +
-                '</div>';
-            $('#dashboard-port-access').html(portInfoHtml);
-        })
-        .fail(function() {
-            var portInfoHtml = '<div class="alert alert-info mb-0">' +
-                '<h6><i class="fas fa-info-circle"></i> Available Ports</h6>' +
-                '<div><strong>You can use ports 10000 and above</strong></div>' +
-                '<div class="mt-2"><small class="text-info">' +
-                '<i class="fas fa-info-circle"></i> Ports 0-9999 are reserved for admin assignment. ' +
-                'Contact your administrator if you need access to reserved ports.' +
-                '</small></div>' +
-                '</div>';
-            $('#dashboard-port-access').html(portInfoHtml);
-        });
-}
 
 // Data loading functions
 function loadTunnelsData() {
@@ -1277,6 +1430,90 @@ function loadLogsData() {
         });
 }
 
+function loadPortAccessBanner() {
+    // Load user's port access information as a permanent banner
+    $.get('/api/user/port-reservations')
+        .done(function(data) {
+            var bannerHtml = '';
+            if (data && data.length > 0) {
+                bannerHtml = '<div class="alert alert-success mb-3">' +
+                    '<h6><i class="fas fa-check-circle"></i> You have reserved ports assigned</h6>' +
+                    '<div class="row">';
+                data.forEach(function(reservation, index) {
+                    if (index > 0 && index % 3 === 0) {
+                        bannerHtml += '</div><div class="row">';
+                    }
+                    bannerHtml += '<div class="col-md-4 mb-2">' +
+                        '<strong>Ports ' + reservation.start_port + '-' + reservation.end_port + '</strong>';
+                    if (reservation.description) {
+                        bannerHtml += '<br><small class="text-muted">' + reservation.description + '</small>';
+                    }
+                    bannerHtml += '</div>';
+                });
+                bannerHtml += '</div>' +
+                    '<small class="text-success d-block mt-2">' +
+                    '<i class="fas fa-info-circle"></i> You can create tunnels and listeners on these reserved ports in addition to unreserved ports.' +
+                    '</small>' +
+                    '</div>';
+            } else {
+                // Show general port info for users without reservations
+                loadGeneralPortBanner();
+                return;
+            }
+            $('#port-access-banner').html(bannerHtml);
+        })
+        .fail(function() {
+            // If we can't load user reservations, still show general port info
+            loadGeneralPortBanner();
+        });
+}
+
+function loadGeneralPortBanner() {
+    // Show general port info as a banner for users without reservations
+    $.get('/api/user/reserved-ports-threshold')
+        .done(function(thresholdData) {
+            var threshold = thresholdData.threshold || 10000;
+            var bannerHtml = '<div class="alert alert-info mb-3">' +
+                '<h6><i class="fas fa-info-circle"></i> Available Ports</h6>' +
+                '<div><strong>You can use ports ' + threshold + ' and above</strong></div>' +
+                '<small class="text-info d-block mt-2">' +
+                '<i class="fas fa-info-circle"></i> Ports 0-' + (threshold-1) + ' are reserved for admin assignment. ' +
+                'Contact your administrator if you need access to reserved ports.' +
+                '</small>' +
+                '</div>';
+            $('#port-access-banner').html(bannerHtml);
+        })
+        .fail(function() {
+            var bannerHtml = '<div class="alert alert-info mb-3">' +
+                '<h6><i class="fas fa-info-circle"></i> Available Ports</h6>' +
+                '<div><strong>You can use ports 10000 and above</strong></div>' +
+                '<small class="text-info d-block mt-2">' +
+                '<i class="fas fa-info-circle"></i> Ports 0-9999 are reserved for admin assignment. ' +
+                'Contact your administrator if you need access to reserved ports.' +
+                '</small>' +
+                '</div>';
+            $('#port-access-banner').html(bannerHtml);
+        });
+}
+
+function loadLogsDataSilently() {
+    // Silent refresh that only updates if there are changes
+    $.get('/api/logs?limit=50')
+        .done(function(response) {
+            if (response && response.logs && response.logs.length > 0) {
+                // Check if we have new logs by comparing with current content
+                var currentLogCount = $('.log-entry').length;
+                if (response.logs.length !== currentLogCount) {
+                    // Only update if log count changed
+                    loadLogsData();
+                }
+            }
+        })
+        .fail(function() {
+            // Silently fail - don't show errors for background refresh
+        });
+}
+
 // Data loading functions for listeners
 function loadListenersData() {
     $.get('/api/listeners')
@@ -1364,6 +1601,16 @@ function loadUserProfile() {
         if (window.currentUser.sso_enabled) {
             $('#email').prop('disabled', true);
             $('#emailHelp').text('Email cannot be changed when using SSO');
+
+            // Disable password fields for SSO users
+            $('#currentPassword, #newPassword, #confirmPassword').prop('disabled', true);
+            $('#currentPassword, #newPassword, #confirmPassword').addClass('bg-light');
+
+            // Add info message about SSO password management
+            $('#profileForm').append('<div class="alert alert-info mt-3">' +
+                '<i class="fas fa-info-circle"></i> ' +
+                'Password management is handled by your SSO provider. Use API tokens for programmatic access.' +
+                '</div>');
         }
     }
 }
@@ -1516,26 +1763,28 @@ function updateUserProfile() {
         email: $('#email').val().trim()
     };
 
-    // Add password fields if provided
-    var currentPassword = $('#currentPassword').val();
-    var newPassword = $('#newPassword').val();
-    var confirmPassword = $('#confirmPassword').val();
+    // Add password fields if provided (skip for SSO users)
+    if (!window.currentUser.sso_enabled) {
+        var currentPassword = $('#currentPassword').val();
+        var newPassword = $('#newPassword').val();
+        var confirmPassword = $('#confirmPassword').val();
 
-    if (newPassword) {
-        if (!currentPassword) {
-            alert('Current password is required to change password');
-            return;
+        if (newPassword) {
+            if (!currentPassword) {
+                alert('Current password is required to change password');
+                return;
+            }
+            if (newPassword !== confirmPassword) {
+                alert('New passwords do not match');
+                return;
+            }
+            if (newPassword.length < 6) {
+                alert('New password must be at least 6 characters long');
+                return;
+            }
+            profileData.current_password = currentPassword;
+            profileData.new_password = newPassword;
         }
-        if (newPassword !== confirmPassword) {
-            alert('New passwords do not match');
-            return;
-        }
-        if (newPassword.length < 6) {
-            alert('New password must be at least 6 characters long');
-            return;
-        }
-        profileData.current_password = currentPassword;
-        profileData.new_password = newPassword;
     }
 
     $.ajax({
@@ -1790,7 +2039,9 @@ function loadLogsData() {
         .done(function(response) {
             var logsHtml = '';
             if (response && response.logs && response.logs.length > 0) {
-                response.logs.forEach(function(log) {
+                // Reverse logs to show newest first
+                var reversedLogs = response.logs.slice().reverse();
+                reversedLogs.forEach(function(log) {
                     var levelClass = '';
                     var levelIcon = '';
                     switch(log.level.toLowerCase()) {
@@ -1831,9 +2082,9 @@ function loadLogsData() {
 
                 // Add summary info
                 var summary = '<div class="text-muted mb-3 pb-2" style="border-bottom: 1px solid #495057;">' +
-                    'Showing ' + response.logs.length + ' of ' + response.total_count + ' log entries';
+                    'Showing ' + response.logs.length + ' log entries (newest first)';
                 if (response.has_more) {
-                    summary += ' (more available)';
+                    summary += ' - more available';
                 }
                 summary += '</div>';
                 logsHtml = summary + logsHtml;
@@ -1842,9 +2093,9 @@ function loadLogsData() {
             }
             $('#logs-container').html(logsHtml);
 
-            // Auto-scroll to bottom
+            // Keep scroll at top to show newest logs
             var container = document.getElementById('logs-container');
-            container.scrollTop = container.scrollHeight;
+            container.scrollTop = 0;
         })
         .fail(function() {
             $('#logs-container').html('<div class="text-danger text-center">Failed to load logs</div>');
@@ -2842,6 +3093,8 @@ $(document).ready(function() {
     console.log('Dashboard initialized');
     window.currentView = 'dashboard';
     loadUserInfo();
+
+    // Load initial dashboard view
     loadDashboard();
 
     // Test if functions are available

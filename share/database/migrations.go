@@ -198,6 +198,19 @@ func (d *SQLDatabase) getSQLiteMigrations() []string {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_auth_sources_username ON user_auth_sources(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_auth_sources_external_id ON user_auth_sources(external_id)`,
+
+		// Create user_preferences table
+		`CREATE TABLE IF NOT EXISTS user_preferences (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL,
+			preference_key TEXT NOT NULL,
+			preference_value TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
+			UNIQUE(username, preference_key)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_preferences_username ON user_preferences(username)`,
 	}
 }
 
@@ -367,5 +380,18 @@ func (d *SQLDatabase) getPostgresMigrations() []string {
 		// Add email and display_name columns to users table if they don't exist (PostgreSQL)
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255) DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255) DEFAULT ''`,
+
+		// Create user_preferences table (PostgreSQL)
+		`CREATE TABLE IF NOT EXISTS user_preferences (
+			id SERIAL PRIMARY KEY,
+			username VARCHAR(255) NOT NULL,
+			preference_key VARCHAR(255) NOT NULL,
+			preference_value TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
+			UNIQUE(username, preference_key)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_preferences_username ON user_preferences(username)`,
 	}
 }

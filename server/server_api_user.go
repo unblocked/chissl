@@ -76,10 +76,21 @@ func (s *Server) handleGetUserInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check if user is using SSO
-	if authMethodValue := r.Context().Value("authMethod"); authMethodValue != nil {
-		if authMethodStr, ok := authMethodValue.(string); ok && authMethodStr == "auth0" {
+	// Check if user is using SSO by looking at auth sources
+	if s.db != nil {
+		if authSource, err := s.db.GetUserAuthSource(username); err == nil && authSource != nil {
 			userInfo.SSOEnabled = true
+			userInfo.AuthMethod = authSource.AuthSource
+		}
+	}
+
+	// Also check current auth method from context
+	if authMethodValue := r.Context().Value("authMethod"); authMethodValue != nil {
+		if authMethodStr, ok := authMethodValue.(string); ok && (authMethodStr == "auth0" || authMethodStr == "sso") {
+			userInfo.SSOEnabled = true
+			if userInfo.AuthMethod == "" {
+				userInfo.AuthMethod = authMethodStr
+			}
 		}
 	}
 
@@ -316,6 +327,83 @@ func (s *Server) handleUpdateUserProfile(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Return success
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+// handleGetUserPreference gets a user preference
+func (s *Server) handleGetUserPreference(w http.ResponseWriter, r *http.Request) {
+	username := s.getUsernameFromContext(r.Context())
+	if username == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if s.db == nil {
+		http.Error(w, "Database not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get preference key from URL path
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 5 {
+		http.Error(w, "Invalid preference key", http.StatusBadRequest)
+		return
+	}
+	key := parts[4]
+
+	pref, err := s.db.GetUserPreference(username, key)
+	if err != nil {
+		s.Debugf("Failed to get user preference: %v", err)
+		http.Error(w, "Failed to get preference", http.StatusInternalServerError)
+		return
+	}
+
+	if pref == nil {
+		http.Error(w, "Preference not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(pref)
+}
+
+// handleSetUserPreference sets a user preference
+func (s *Server) handleSetUserPreference(w http.ResponseWriter, r *http.Request) {
+	username := s.getUsernameFromContext(r.Context())
+	if username == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if s.db == nil {
+		http.Error(w, "Database not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get preference key from URL path
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 5 {
+		http.Error(w, "Invalid preference key", http.StatusBadRequest)
+		return
+	}
+	key := parts[4]
+
+	var req struct {
+		Value string `json:"value"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.db.SetUserPreference(username, key, req.Value); err != nil {
+		s.Debugf("Failed to set user preference: %v", err)
+		http.Error(w, "Failed to set preference", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }

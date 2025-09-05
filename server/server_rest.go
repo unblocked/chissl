@@ -113,16 +113,34 @@ func (s *Server) userAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Try Auth0 JWT token first
-		if s.auth0 != nil && strings.HasPrefix(authHeader, "Bearer ") {
-			userInfo, err := s.auth0.ValidateToken(authHeader)
-			if err == nil {
-				// Auth0 authentication successful
-				ctx := r.Context()
-				ctx = context.WithValue(ctx, "userInfo", userInfo)
-				ctx = context.WithValue(ctx, "authMethod", "auth0")
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
+		// Try API token first if it's a Bearer token
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+
+			// Check API tokens in database
+			if s.db != nil {
+				userToken, err := s.db.ValidateUserToken(token)
+				if err == nil && userToken != nil {
+					// API token authentication successful
+					ctx := r.Context()
+					ctx = context.WithValue(ctx, "username", userToken.Username)
+					ctx = context.WithValue(ctx, "authMethod", "api_token")
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+
+			// Try Auth0 JWT token if API token failed
+			if s.auth0 != nil {
+				userInfo, err := s.auth0.ValidateToken(authHeader)
+				if err == nil {
+					// Auth0 authentication successful
+					ctx := r.Context()
+					ctx = context.WithValue(ctx, "userInfo", userInfo)
+					ctx = context.WithValue(ctx, "authMethod", "auth0")
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
 			}
 		}
 
@@ -356,6 +374,210 @@ func getUsernameFromPath(path string) (string, error) {
 	return username, nil
 }
 
+// cleanupUserResources performs comprehensive cleanup of all user resources
+func (s *Server) cleanupUserResources(username string) error {
+	s.Infof("Starting cleanup for user: %s", username)
+
+	// 1. Close all active SSH sessions for this user
+	if err := s.closeUserSessions(username); err != nil {
+		s.Debugf("Failed to close user sessions: %v", err)
+	}
+
+	// 2. Stop and delete all user's listeners
+	if err := s.cleanupUserListeners(username); err != nil {
+		s.Debugf("Failed to cleanup user listeners: %v", err)
+	}
+
+	// 3. Close all active tunnels for this user
+	if err := s.cleanupUserTunnels(username); err != nil {
+		s.Debugf("Failed to cleanup user tunnels: %v", err)
+	}
+
+	// 4. Delete all user's port reservations
+	if err := s.cleanupUserPortReservations(username); err != nil {
+		s.Debugf("Failed to cleanup user port reservations: %v", err)
+	}
+
+	// 5. Delete all user's API tokens
+	if err := s.cleanupUserTokens(username); err != nil {
+		s.Debugf("Failed to cleanup user tokens: %v", err)
+	}
+
+	// 6. Delete user's auth sources
+	if err := s.cleanupUserAuthSources(username); err != nil {
+		s.Debugf("Failed to cleanup user auth sources: %v", err)
+	}
+
+	s.Infof("Completed cleanup for user: %s", username)
+	return nil
+}
+
+// closeUserSessions closes all active SSH sessions for a user
+func (s *Server) closeUserSessions(username string) error {
+	if s.sessions == nil {
+		return nil
+	}
+
+	// Get all sessions and close ones belonging to this user
+	sessionIDs := s.sessions.GetSessionIDs()
+	for _, sessionID := range sessionIDs {
+		if user, found := s.sessions.Get(sessionID); found && user.Name == username {
+			s.sessions.Del(sessionID)
+			s.Debugf("Closed session %s for user %s", sessionID, username)
+		}
+	}
+
+	return nil
+}
+
+// cleanupUserListeners stops and deletes all listeners owned by a user
+func (s *Server) cleanupUserListeners(username string) error {
+	if s.db == nil {
+		return nil
+	}
+
+	// Get all listeners for this user
+	listeners, err := s.db.ListListeners()
+	if err != nil {
+		return fmt.Errorf("failed to list listeners: %w", err)
+	}
+
+	for _, listener := range listeners {
+		if listener.Username == username {
+			// Stop the listener if it's running
+			if s.listeners != nil {
+				if err := s.listeners.StopListener(listener.ID); err != nil {
+					s.Debugf("Failed to stop listener %s: %v", listener.ID, err)
+				}
+			}
+
+			// Delete from database
+			if err := s.db.DeleteListener(listener.ID); err != nil {
+				s.Debugf("Failed to delete listener %s: %v", listener.ID, err)
+			} else {
+				s.Debugf("Deleted listener %s for user %s", listener.ID, username)
+			}
+		}
+	}
+
+	return nil
+}
+
+// cleanupUserTunnels closes and deletes all tunnels owned by a user
+func (s *Server) cleanupUserTunnels(username string) error {
+	if s.db == nil {
+		return nil
+	}
+
+	// Get all tunnels for this user
+	tunnels, err := s.db.ListTunnels()
+	if err != nil {
+		return fmt.Errorf("failed to list tunnels: %w", err)
+	}
+
+	for _, tunnel := range tunnels {
+		if tunnel.Username == username {
+			// Mark tunnel as closed (this will trigger cleanup in active connections)
+			tunnel.Status = "closed"
+			if err := s.db.UpdateTunnel(tunnel); err != nil {
+				s.Debugf("Failed to update tunnel status %s: %v", tunnel.ID, err)
+			}
+
+			// Delete from database
+			if err := s.db.DeleteTunnel(tunnel.ID); err != nil {
+				s.Debugf("Failed to delete tunnel %s: %v", tunnel.ID, err)
+			} else {
+				s.Debugf("Deleted tunnel %s for user %s", tunnel.ID, username)
+			}
+		}
+	}
+
+	// Also clean up from in-memory live tunnels if not using database
+	if s.liveTunnels != nil {
+		s.liveMu.Lock()
+		for tunnelID, tunnel := range s.liveTunnels {
+			if tunnel.Username == username {
+				delete(s.liveTunnels, tunnelID)
+				s.Debugf("Removed live tunnel %s for user %s", tunnelID, username)
+			}
+		}
+		s.liveMu.Unlock()
+	}
+
+	return nil
+}
+
+// cleanupUserPortReservations deletes all port reservations for a user
+func (s *Server) cleanupUserPortReservations(username string) error {
+	if s.db == nil {
+		return nil
+	}
+
+	// Get all port reservations for this user
+	reservations, err := s.db.ListUserPortReservations(username)
+	if err != nil {
+		return fmt.Errorf("failed to list user port reservations: %w", err)
+	}
+
+	for _, reservation := range reservations {
+		if err := s.db.DeletePortReservation(reservation.ID); err != nil {
+			s.Debugf("Failed to delete port reservation %s: %v", reservation.ID, err)
+		} else {
+			s.Debugf("Deleted port reservation %s (ports %d-%d) for user %s",
+				reservation.ID, reservation.StartPort, reservation.EndPort, username)
+		}
+	}
+
+	return nil
+}
+
+// cleanupUserTokens deletes all API tokens for a user
+func (s *Server) cleanupUserTokens(username string) error {
+	if s.db == nil {
+		return nil
+	}
+
+	// Get all tokens for this user
+	tokens, err := s.db.ListUserTokens(username)
+	if err != nil {
+		return fmt.Errorf("failed to list user tokens: %w", err)
+	}
+
+	for _, token := range tokens {
+		if err := s.db.DeleteUserToken(token.ID); err != nil {
+			s.Debugf("Failed to delete user token %s: %v", token.ID, err)
+		} else {
+			s.Debugf("Deleted API token %s for user %s", token.ID, username)
+		}
+	}
+
+	return nil
+}
+
+// cleanupUserAuthSources deletes all auth sources for a user
+func (s *Server) cleanupUserAuthSources(username string) error {
+	if s.db == nil {
+		return nil
+	}
+
+	// Get all auth sources for this user
+	authSources, err := s.db.ListUserAuthSourcesByUsername(username)
+	if err != nil {
+		return fmt.Errorf("failed to list user auth sources: %w", err)
+	}
+
+	for _, authSource := range authSources {
+		if err := s.db.DeleteUserAuthSource(authSource.ID); err != nil {
+			s.Debugf("Failed to delete user auth source %d: %v", authSource.ID, err)
+		} else {
+			s.Debugf("Deleted auth source %d (%s) for user %s",
+				authSource.ID, authSource.AuthSource, username)
+		}
+	}
+
+	return nil
+}
+
 func (s *Server) handleGetUsers(w http.ResponseWriter, r *http.Request) {
 	if s.db != nil {
 		// Use database
@@ -580,11 +802,20 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Perform comprehensive user cleanup
+		if err := s.cleanupUserResources(username); err != nil {
+			s.Debugf("Failed to cleanup user resources: %v", err)
+			http.Error(w, "Failed to cleanup user resources", http.StatusInternalServerError)
+			return
+		}
+
+		// Finally delete the user from database
 		if err := s.db.DeleteUser(username); err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
 
+		s.Infof("User %s deleted and all resources cleaned up", username)
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
@@ -783,4 +1014,26 @@ func (s *Server) handleDeleteUserAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.handleDeleteUser(w, r) // Reuse existing logic
+}
+
+// Exported middleware methods for testing
+
+// CombinedAuthMiddleware is an exported version of combinedAuthMiddleware for testing
+func (s *Server) CombinedAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return s.combinedAuthMiddleware(next)
+}
+
+// UserAuthMiddleware is an exported version of userAuthMiddleware for testing
+func (s *Server) UserAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return s.userAuthMiddleware(next)
+}
+
+// BasicAuthMiddleware is an exported version of basicAuthMiddleware for testing
+func (s *Server) BasicAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return s.basicAuthMiddleware(next)
+}
+
+// HandleDeleteUser is an exported version of handleDeleteUser for testing
+func (s *Server) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	s.handleDeleteUser(w, r)
 }

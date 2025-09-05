@@ -51,6 +51,18 @@ func (u *Users) Del(key string) {
 	u.Unlock()
 }
 
+// GetSessionIDs returns all session IDs (keys) in the users map
+func (u *Users) GetSessionIDs() []string {
+	u.RLock()
+	defer u.RUnlock()
+
+	sessionIDs := make([]string, 0, len(u.inner))
+	for sessionID := range u.inner {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	return sessionIDs
+}
+
 // AddUser adds a users to the set
 func (u *Users) AddUser(user *User) {
 	u.Set(user.Name, user)

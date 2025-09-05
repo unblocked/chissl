@@ -239,3 +239,38 @@ func (d *SQLDatabase) ListUserAuthSources() ([]*UserAuthSource, error) {
 
 	return sources, nil
 }
+
+// ListUserAuthSourcesByUsername returns authentication sources for a specific user
+func (d *SQLDatabase) ListUserAuthSourcesByUsername(username string) ([]*UserAuthSource, error) {
+	var sources []*UserAuthSource
+	query := `SELECT id, username, auth_source, external_id, provider_data, created_at, updated_at
+			  FROM user_auth_sources WHERE username = $1 ORDER BY created_at`
+
+	err := d.db.Select(&sources, query, username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list user auth sources for %s: %w", username, err)
+	}
+
+	return sources, nil
+}
+
+// DeleteUserAuthSource deletes a user authentication source by ID
+func (d *SQLDatabase) DeleteUserAuthSource(id int) error {
+	query := `DELETE FROM user_auth_sources WHERE id = $1`
+
+	result, err := d.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete user auth source: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("user auth source not found: %d", id)
+	}
+
+	return nil
+}

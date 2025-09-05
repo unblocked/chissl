@@ -228,6 +228,10 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 				s.userAuthMiddleware(s.handleGetReservedPortsThreshold)(w, r)
 				return
 			}
+			if strings.Contains(path, "/preferences/") {
+				s.userAuthMiddleware(s.handleGetUserPreference)(w, r)
+				return
+			}
 		case http.MethodPost:
 			if strings.Contains(path, "/tokens") {
 				s.userAuthMiddleware(s.handleCreateUserToken)(w, r)
@@ -236,6 +240,10 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 		case http.MethodPut:
 			if strings.HasSuffix(path, "/profile") {
 				s.userAuthMiddleware(s.handleUpdateUserProfile)(w, r)
+				return
+			}
+			if strings.Contains(path, "/preferences/") {
+				s.userAuthMiddleware(s.handleSetUserPreference)(w, r)
 				return
 			}
 		case http.MethodDelete:
