@@ -3,7 +3,9 @@ package chserver
 import (
 	"html/template"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 )
 
 // handleDashboard serves the AdminLTE dashboard
@@ -26,7 +28,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle static assets
-	if filepath.Ext(path) != "" {
+	if filepath.Ext(path) != "" || strings.Contains(path, "/static/") {
 		s.serveDashboardAsset(w, r)
 		return
 	}
@@ -279,9 +281,22 @@ func (s *Server) serveDashboardIndex(w http.ResponseWriter, r *http.Request) {
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
 
+<!-- Dashboard JavaScript Modules -->
+<script src="/dashboard/static/js/core/app.js"></script>
+<script src="/dashboard/static/js/core/navigation.js"></script>
+<script src="/dashboard/static/js/views/dashboard.js"></script>
+<script src="/dashboard/static/js/views/tunnels.js"></script>
+<script src="/dashboard/static/js/views/users.js"></script>
+<script src="/dashboard/static/js/views/listeners.js"></script>
+<script src="/dashboard/static/js/views/logs.js"></script>
+<script src="/dashboard/static/js/views/user-settings.js"></script>
+<script src="/dashboard/static/js/components/sso.js"></script>
+<script src="/dashboard/static/js/components/port-reservations.js"></script>
+<script src="/dashboard/static/js/utils/traffic-inspector.js"></script>
+
 <script>
-// Dashboard JavaScript
-console.log('Script started');
+// Remaining inline JavaScript (to be modularized)
+console.log('Dashboard legacy script loaded');
 
 // Set up AJAX defaults with credentials
 $.ajaxSetup({
@@ -3391,8 +3406,43 @@ func (s *Server) handleDashboardLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 }
 
-// serveDashboardAsset serves static assets (placeholder)
+// serveDashboardAsset serves static assets
 func (s *Server) serveDashboardAsset(w http.ResponseWriter, r *http.Request) {
-	// In a real implementation, you'd serve actual static files
-	http.NotFound(w, r)
+	// Remove /dashboard prefix from path
+	assetPath := r.URL.Path
+	if len(assetPath) > 10 && assetPath[:10] == "/dashboard" {
+		assetPath = assetPath[10:]
+	}
+
+	// Remove leading slash
+	if len(assetPath) > 0 && assetPath[0] == '/' {
+		assetPath = assetPath[1:]
+	}
+
+	// Build full file path
+	fullPath := filepath.Join("server", "dashboard", assetPath)
+
+	// Check if file exists and read it
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Set appropriate content type based on file extension
+	ext := filepath.Ext(assetPath)
+	switch ext {
+	case ".js":
+		w.Header().Set("Content-Type", "application/javascript")
+	case ".css":
+		w.Header().Set("Content-Type", "text/css")
+	case ".html":
+		w.Header().Set("Content-Type", "text/html")
+	case ".json":
+		w.Header().Set("Content-Type", "application/json")
+	default:
+		w.Header().Set("Content-Type", "text/plain")
+	}
+
+	w.Write(content)
 }
