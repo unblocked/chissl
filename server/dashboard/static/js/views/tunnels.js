@@ -31,10 +31,13 @@ function loadTunnelsView() {
 }
 
 function loadTunnelsData() {
+    window.deletedTunnelIds = window.deletedTunnelIds || new Set();
     $.get('/api/tunnels')
         .done(function(data) {
+            // Filter out client-side hidden tunnels
+            var dataFiltered = data.filter(function(t){ return !(window.deletedTunnelIds && window.deletedTunnelIds.has(t.id)); });
             var tunnelsHtml = '';
-            if (data && data.length > 0) {
+            if (dataFiltered && dataFiltered.length > 0) {
                 tunnelsHtml = '<div class="table-responsive">' +
                     '<table class="table table-striped">' +
                     '<thead>' +
@@ -50,7 +53,7 @@ function loadTunnelsData() {
                     '</thead>' +
                     '<tbody>';
 
-                data.forEach(function(tunnel) {
+                dataFiltered.forEach(function(tunnel) {
                     var statusClass = tunnel.connected ? 'badge-success' : 'badge-danger';
                     var statusText = tunnel.connected ? 'Connected' : 'Disconnected';
                     var connectedTime = tunnel.connected_at ? new Date(tunnel.connected_at).toLocaleString() : 'Never';
@@ -71,6 +74,7 @@ function loadTunnelsData() {
                         '<i class="fas fa-times"></i>' +
                         '</button>' +
                         '</div>' +
+
                         '</td>' +
                         '</tr>';
                 });
@@ -94,10 +98,11 @@ function loadTunnelsData() {
 function deleteTunnel(tunnelId) {
     if (confirm('Are you sure you want to close this tunnel? This will terminate the connection.')) {
         $.ajax({
-            url: '/api/tunnel/' + tunnelId,
+            url: '/api/tunnels/' + encodeURIComponent(tunnelId),
             method: 'DELETE'
         })
         .done(function() {
+            if (window.deletedTunnelIds) { window.deletedTunnelIds.add(tunnelId); }
             // Reload tunnels data
             loadTunnelsData();
             // Show success message

@@ -1,8 +1,10 @@
 package chserver
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -66,6 +68,8 @@ func (lm *ListenerManager) StartListener(config *database.Listener, tapFactory t
 		handler = lm.createSinkHandler(config, tapFactory)
 	case "proxy":
 		handler = lm.createProxyHandler(config, tapFactory)
+	case "ai-mock":
+		handler = lm.createAIMockHandler(config, tapFactory)
 	default:
 		return fmt.Errorf("unsupported listener mode: %s", config.Mode)
 	}
@@ -107,6 +111,15 @@ func (lm *ListenerManager) StartListener(config *database.Listener, tapFactory t
 		if lm.tlsConfig != nil && config.UseTLS {
 			// Clone the TLS config to avoid race conditions
 			tlsConfigCopy := lm.tlsConfig.Clone()
+
+			// Ensure modern TLS configuration
+			if tlsConfigCopy.MinVersion == 0 {
+				tlsConfigCopy.MinVersion = tls.VersionTLS12
+			}
+			if tlsConfigCopy.MaxVersion == 0 {
+				tlsConfigCopy.MaxVersion = tls.VersionTLS13
+			}
+
 			listener = tls.NewListener(listener, tlsConfigCopy)
 			// Log TLS configuration details for debugging
 			certCount := len(tlsConfigCopy.Certificates)
@@ -426,4 +439,262 @@ func (lm *ListenerManager) createProxyHandler(config *database.Listener, tapFact
 			io.Copy(w, resp.Body)
 		}
 	})
+}
+
+// createAIMockHandler creates an AI-powered mock API handler
+func (lm *ListenerManager) createAIMockHandler(config *database.Listener, tapFactory tunnel.TapFactory) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Generate connection ID
+		connID := fmt.Sprintf("conn-%d", time.Now().UnixNano())
+
+		// Create tap for traffic capture
+		var tap tunnel.Tap
+		if tapFactory != nil {
+			meta := tunnel.Meta{
+				Username: config.Username,
+				Remote:   settings.Remote{LocalHost: "127.0.0.1", LocalPort: strconv.Itoa(config.Port), RemoteHost: "127.0.0.1", RemotePort: strconv.Itoa(config.Port)},
+				ConnID:   connID,
+			}
+			tap = tapFactory(meta)
+			if tap != nil {
+				tap.OnOpen()
+				defer func() {
+					// Calculate approximate bytes (headers + body)
+					sent := int64(0) // Will be set when we write response
+					received := int64(r.ContentLength)
+					if received < 0 {
+						received = 0
+					}
+					tap.OnClose(sent, received)
+				}()
+			}
+		}
+
+		// Log the request
+		if tap != nil {
+			reqData := fmt.Sprintf("%s %s %s\r\n", r.Method, r.URL.String(), r.Proto)
+			reqData += fmt.Sprintf("Host: %s\r\n", r.Host)
+			for name, values := range r.Header {
+				for _, value := range values {
+					reqData += fmt.Sprintf("%s: %s\r\n", name, value)
+				}
+			}
+			reqData += "\r\n"
+
+			// Read and log request body if present
+			if r.Body != nil {
+				bodyBytes, _ := io.ReadAll(r.Body)
+				reqData += string(bodyBytes)
+				// Restore body for further processing
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
+
+			tap.DstWriter().Write([]byte(reqData))
+		}
+
+		// Get AI listener and active version
+		aiListener, err := lm.db.GetAIListenerByListenerID(config.ID)
+		if err != nil {
+			http.Error(w, "AI configuration not found", http.StatusInternalServerError)
+			return
+		}
+
+		activeVersion, err := lm.db.GetActiveAIResponseVersion(aiListener.ID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("AI configuration error: %v", err), http.StatusServiceUnavailable)
+			return
+		}
+
+		if activeVersion == nil {
+			http.Error(w, "No active AI response version found", http.StatusServiceUnavailable)
+			return
+		}
+
+		if activeVersion.GenerationStatus != "success" {
+			statusMsg := fmt.Sprintf("AI responses not ready (status: %s)", activeVersion.GenerationStatus)
+			if activeVersion.GenerationError != "" {
+				statusMsg += fmt.Sprintf(" - Error: %s", activeVersion.GenerationError)
+			}
+			http.Error(w, statusMsg, http.StatusServiceUnavailable)
+			return
+		}
+
+		// Parse generated responses
+		var responses map[string]interface{}
+		if err := json.Unmarshal([]byte(activeVersion.GeneratedResponses), &responses); err != nil {
+			http.Error(w, "Invalid AI response format", http.StatusInternalServerError)
+			return
+		}
+
+		// Find matching path and method
+		paths, ok := responses["paths"].(map[string]interface{})
+		if !ok {
+			http.Error(w, "No paths found in AI responses", http.StatusNotFound)
+			return
+		}
+
+		// Try exact path match first
+		pathData, found := paths[r.URL.Path]
+		if !found {
+			// Try to find a matching path pattern (simple matching for now)
+			for path, data := range paths {
+				if matchesPath(r.URL.Path, path) {
+					pathData = data
+					found = true
+					break
+				}
+			}
+		}
+
+		if !found {
+			http.Error(w, "Path not found in AI mock responses", http.StatusNotFound)
+			return
+		}
+
+		// Get method data
+		pathMap, ok := pathData.(map[string]interface{})
+		if !ok {
+			http.Error(w, "Invalid path data format", http.StatusInternalServerError)
+			return
+		}
+
+		methodData, ok := pathMap[strings.ToUpper(r.Method)]
+		if !ok {
+			// Try lowercase
+			methodData, ok = pathMap[strings.ToLower(r.Method)]
+			if !ok {
+				http.Error(w, "Method not supported", http.StatusMethodNotAllowed)
+				return
+			}
+		}
+
+		// Get responses
+		methodMap, ok := methodData.(map[string]interface{})
+		if !ok {
+			http.Error(w, "Invalid method data format", http.StatusInternalServerError)
+			return
+		}
+
+		responses_data, ok := methodMap["responses"]
+		if !ok {
+			http.Error(w, "No responses defined", http.StatusInternalServerError)
+			return
+		}
+
+		responsesMap, ok := responses_data.(map[string]interface{})
+		if !ok {
+			http.Error(w, "Invalid responses format", http.StatusInternalServerError)
+			return
+		}
+
+		// Choose response (prefer 200, then first available)
+		var statusCode string
+		var responseData interface{}
+
+		if data, ok := responsesMap["200"]; ok {
+			statusCode = "200"
+			responseData = data
+		} else {
+			// Get first available response
+			for code, data := range responsesMap {
+				statusCode = code
+				responseData = data
+				break
+			}
+		}
+
+		if responseData == nil {
+			http.Error(w, "No response data available", http.StatusInternalServerError)
+			return
+		}
+
+		// Extract response content
+		responseMap, ok := responseData.(map[string]interface{})
+		if !ok {
+			http.Error(w, "Invalid response data format", http.StatusInternalServerError)
+			return
+		}
+
+		content, ok := responseMap["content"]
+		if !ok {
+			// Simple response without content structure
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(200)
+			json.NewEncoder(w).Encode(responseData)
+			return
+		}
+
+		contentMap, ok := content.(map[string]interface{})
+		if !ok {
+			http.Error(w, "Invalid content format", http.StatusInternalServerError)
+			return
+		}
+
+		// Get JSON content
+		jsonContent, ok := contentMap["application/json"]
+		if !ok {
+			// Try other content types
+			for contentType, data := range contentMap {
+				w.Header().Set("Content-Type", contentType)
+				code, _ := strconv.Atoi(statusCode)
+				if code == 0 {
+					code = 200
+				}
+				w.WriteHeader(code)
+
+				if dataMap, ok := data.(map[string]interface{}); ok {
+					if example, ok := dataMap["example"]; ok {
+						json.NewEncoder(w).Encode(example)
+					} else {
+						json.NewEncoder(w).Encode(data)
+					}
+				} else {
+					json.NewEncoder(w).Encode(data)
+				}
+				return
+			}
+
+			http.Error(w, "No supported content type found", http.StatusInternalServerError)
+			return
+		}
+
+		jsonMap, ok := jsonContent.(map[string]interface{})
+		if !ok {
+			http.Error(w, "Invalid JSON content format", http.StatusInternalServerError)
+			return
+		}
+
+		example, ok := jsonMap["example"]
+		if !ok {
+			http.Error(w, "No example data found", http.StatusInternalServerError)
+			return
+		}
+
+		// Send response
+		w.Header().Set("Content-Type", "application/json")
+		code, _ := strconv.Atoi(statusCode)
+		if code == 0 {
+			code = 200
+		}
+		w.WriteHeader(code)
+
+		responseBody, _ := json.Marshal(example)
+		w.Write(responseBody)
+
+		// Log the response and update sent bytes
+		if tap != nil {
+			respData := fmt.Sprintf("HTTP/1.1 %d %s\r\n", code, http.StatusText(code))
+			respData += fmt.Sprintf("Content-Type: application/json\r\n")
+			respData += fmt.Sprintf("Content-Length: %d\r\n", len(responseBody))
+			respData += "\r\n"
+			respData += string(responseBody)
+			tap.DstWriter().Write([]byte(respData))
+		}
+	})
+}
+
+// matchesPath performs simple path matching (can be enhanced for path parameters)
+func matchesPath(requestPath, templatePath string) bool {
+	// For now, just exact match - can be enhanced to support path parameters like /users/{id}
+	return requestPath == templatePath
 }

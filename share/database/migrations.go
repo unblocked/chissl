@@ -211,6 +211,66 @@ func (d *SQLDatabase) getSQLiteMigrations() []string {
 			UNIQUE(username, preference_key)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_preferences_username ON user_preferences(username)`,
+
+		// Create AI providers table
+		`CREATE TABLE IF NOT EXISTS ai_providers (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			provider_type TEXT NOT NULL,
+			api_key TEXT NOT NULL,
+			api_endpoint TEXT,
+			model TEXT NOT NULL,
+			max_tokens INTEGER DEFAULT 4000,
+			temperature REAL DEFAULT 0.7,
+			enabled BOOLEAN DEFAULT true,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_by TEXT NOT NULL,
+			test_status TEXT DEFAULT 'untested',
+			test_message TEXT,
+			test_at DATETIME
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_providers_type ON ai_providers(provider_type)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_providers_enabled ON ai_providers(enabled)`,
+
+		// Create AI listeners table
+		`CREATE TABLE IF NOT EXISTS ai_listeners (
+			id TEXT PRIMARY KEY,
+			listener_id TEXT NOT NULL,
+			ai_provider_id TEXT NOT NULL,
+			openapi_spec TEXT,
+			system_prompt TEXT,
+			conversation_thread TEXT,
+			generated_responses TEXT,
+			last_generated_at DATETIME,
+			generation_status TEXT DEFAULT 'pending',
+			generation_error TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (listener_id) REFERENCES listeners(id) ON DELETE CASCADE,
+			FOREIGN KEY (ai_provider_id) REFERENCES ai_providers(id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_listeners_listener_id ON ai_listeners(listener_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_listeners_provider_id ON ai_listeners(ai_provider_id)`,
+
+		// Create AI response versions table for iterative refinement
+		`CREATE TABLE IF NOT EXISTS ai_response_versions (
+			id TEXT PRIMARY KEY,
+			ai_listener_id TEXT NOT NULL,
+			version_number INTEGER NOT NULL,
+			openapi_spec TEXT NOT NULL,
+			system_prompt TEXT,
+			user_instructions TEXT,
+			generated_responses TEXT NOT NULL,
+			generation_status TEXT DEFAULT 'pending',
+			generation_error TEXT,
+			is_active BOOLEAN DEFAULT FALSE,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (ai_listener_id) REFERENCES ai_listeners(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_listener_id ON ai_response_versions(ai_listener_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_version ON ai_response_versions(ai_listener_id, version_number)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_active ON ai_response_versions(ai_listener_id, is_active)`,
 	}
 }
 
@@ -393,5 +453,65 @@ func (d *SQLDatabase) getPostgresMigrations() []string {
 			UNIQUE(username, preference_key)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_preferences_username ON user_preferences(username)`,
+
+		// Create AI providers table (PostgreSQL)
+		`CREATE TABLE IF NOT EXISTS ai_providers (
+			id VARCHAR(255) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			provider_type VARCHAR(50) NOT NULL,
+			api_key TEXT NOT NULL,
+			api_endpoint TEXT,
+			model VARCHAR(255) NOT NULL,
+			max_tokens INTEGER DEFAULT 4000,
+			temperature REAL DEFAULT 0.7,
+			enabled BOOLEAN DEFAULT TRUE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			created_by VARCHAR(255) NOT NULL,
+			test_status VARCHAR(50) DEFAULT 'untested',
+			test_message TEXT,
+			test_at TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_providers_type ON ai_providers(provider_type)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_providers_enabled ON ai_providers(enabled)`,
+
+		// Create AI listeners table (PostgreSQL)
+		`CREATE TABLE IF NOT EXISTS ai_listeners (
+			id VARCHAR(255) PRIMARY KEY,
+			listener_id VARCHAR(255) NOT NULL,
+			ai_provider_id VARCHAR(255) NOT NULL,
+			openapi_spec TEXT,
+			system_prompt TEXT,
+			conversation_thread TEXT,
+			generated_responses TEXT,
+			last_generated_at TIMESTAMP,
+			generation_status VARCHAR(50) DEFAULT 'pending',
+			generation_error TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (listener_id) REFERENCES listeners(id) ON DELETE CASCADE,
+			FOREIGN KEY (ai_provider_id) REFERENCES ai_providers(id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_listeners_listener_id ON ai_listeners(listener_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_listeners_provider_id ON ai_listeners(ai_provider_id)`,
+
+		// Create AI response versions table for iterative refinement (PostgreSQL)
+		`CREATE TABLE IF NOT EXISTS ai_response_versions (
+			id VARCHAR(255) PRIMARY KEY,
+			ai_listener_id VARCHAR(255) NOT NULL,
+			version_number INTEGER NOT NULL,
+			openapi_spec TEXT NOT NULL,
+			system_prompt TEXT,
+			user_instructions TEXT,
+			generated_responses TEXT NOT NULL,
+			generation_status VARCHAR(50) DEFAULT 'pending',
+			generation_error TEXT,
+			is_active BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (ai_listener_id) REFERENCES ai_listeners(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_listener_id ON ai_response_versions(ai_listener_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_version ON ai_response_versions(ai_listener_id, version_number)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_active ON ai_response_versions(ai_listener_id, is_active)`,
 	}
 }

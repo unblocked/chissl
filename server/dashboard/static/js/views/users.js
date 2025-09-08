@@ -1,7 +1,7 @@
 // Users View Module
 // Handles user management functionality
 
-console.log('Users view module loaded');
+console.log('🚨🚨🚨 USERS VIEW MODULE LOADED - VERSION 2024-09-07-01:00 - OUTLINE BUTTONS 🚨🚨🚨');
 
 function loadUsersView() {
     var content = '<div class="row">' +
@@ -77,12 +77,10 @@ function loadUsersData() {
                         '<td>' + portReservationsHtml + '</td>' +
                         '<td>' +
                         '<div class="btn-group btn-group-sm" role="group">' +
-                        '<button class="btn btn-outline-primary edit-user-btn" data-username="' + user.username + '" title="Edit User">' +
-                        '<i class="fas fa-edit"></i>' +
-                        '</button>' +
+                        '<button class="btn btn-outline-warning edit-user-btn" data-username="' + user.username + '" title="Edit User">' +
+                        '<i class="fas fa-edit"></i></button>' +
                         '<button class="btn btn-outline-danger delete-user-btn" data-username="' + user.username + '" title="Delete User">' +
-                        '<i class="fas fa-trash"></i>' +
-                        '</button>' +
+                        '<i class="fas fa-trash"></i></button>' +
                         '</div>' +
                         '</td>' +
                         '</tr>';

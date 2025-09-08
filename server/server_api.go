@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/NextChapterSoftware/chissl/share/database"
@@ -130,6 +131,18 @@ func (s *Server) handleGetTunnels(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Failed to get tunnels", http.StatusInternalServerError)
 		return
+	}
+
+	// Server-side visibility override: remove any IDs flagged as deleted
+	if s.deletedTunnelIDs != nil {
+		filtered := make([]*database.Tunnel, 0, len(tunnels))
+		for _, t := range tunnels {
+			if _, hidden := s.deletedTunnelIDs[t.ID]; hidden {
+				continue
+			}
+			filtered = append(filtered, t)
+		}
+		tunnels = filtered
 	}
 
 	// Filter tunnels based on user permissions
@@ -272,10 +285,16 @@ func (s *Server) handleDeleteTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Soft-delete: mark as 'deleted' to preserve history but hide from listings
+	// Always hard-delete to ensure inactive/stale tunnels are removed
 	err := s.db.DeleteTunnel(tunnelID)
 	if err != nil {
 		http.Error(w, "Failed to delete tunnel", http.StatusInternalServerError)
 		return
+	}
+	// Also hide at server-level in case another source reintroduces it
+	if s.deletedTunnelIDs != nil {
+		s.deletedTunnelIDs[tunnelID] = struct{}{}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -417,11 +436,17 @@ func getTunnelIDFromPath(path string) string {
 	// - /api/tunnels/{id}
 	// - /api/capture/tunnels/{id}/... (e.g., /stream, /recent)
 	parts := splitPath(path)
+	decode := func(s string) string {
+		if u, err := url.PathUnescape(s); err == nil {
+			return u
+		}
+		return s
+	}
 	if len(parts) >= 3 && parts[1] == "tunnels" {
-		return parts[2]
+		return decode(parts[2])
 	}
 	if len(parts) >= 4 && parts[1] == "capture" && parts[2] == "tunnels" {
-		return parts[3]
+		return decode(parts[3])
 	}
 	return ""
 }
@@ -503,4 +528,46 @@ func (s *Server) userHasListenerAccess(r *http.Request, listenerID string) bool 
 	}
 
 	return listener.Username == username
+}
+
+// ---- Settings: Experimental Features ----
+// GET /api/settings/feature/ai-mock-visible
+func (s *Server) handleGetAIMockVisibility(w http.ResponseWriter, r *http.Request) {
+	// no DB → default hidden
+	enabled := false
+	if s.db != nil {
+		if val, err := s.db.GetSettingBool("feature_ai_mock_visible", false); err == nil {
+			enabled = val
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"enabled": enabled})
+}
+
+// PUT /api/settings/feature/ai-mock-visible {"enabled": bool}
+func (s *Server) handleSetAIMockVisibility(w http.ResponseWriter, r *http.Request) {
+	if !s.isUserAdmin(r.Context()) {
+		http.Error(w, "Admin privileges required", http.StatusForbidden)
+		return
+	}
+	if s.db == nil {
+		http.Error(w, "Database not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	val := "0"
+	if req.Enabled {
+		val = "1"
+	}
+	if err := s.db.SetSettingString("feature_ai_mock_visible", val); err != nil {
+		http.Error(w, "Failed to persist setting", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

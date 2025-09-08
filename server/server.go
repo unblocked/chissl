@@ -73,6 +73,8 @@ type Server struct {
 	// in-memory live tunnels when DB is not used
 	liveMu      sync.RWMutex
 	liveTunnels map[string]*database.Tunnel
+	// server-side blocklist of deleted tunnel IDs (visibility override)
+	deletedTunnelIDs map[string]struct{}
 }
 
 var upgrader = websocket.Upgrader{
@@ -90,6 +92,7 @@ func NewServer(c *Config) (*Server, error) {
 		sessions:   settings.NewUsers(),
 		startTime:  time.Now(),
 	}
+	server.deletedTunnelIDs = make(map[string]struct{})
 	server.Info = true
 	server.users = settings.NewUserIndex(server.Logger)
 	server.liveTunnels = make(map[string]*database.Tunnel)

@@ -28,11 +28,13 @@ $(document).ready(function() {
     window.dashboardApp.currentView = 'dashboard';
     
     // Load user info first, then initialize views
-    loadUserInfo().then(function() {
+    loadUserInfo().always(function() {
         // Load initial dashboard view
         loadDashboard();
-        
+
+        // DISABLED: Auto-refresh was causing page jumping issues
         // Set up periodic refresh for current view (every 30 seconds)
+        /*
         setInterval(function(){
             switch (window.dashboardApp.currentView) {
                 case 'dashboard': return loadDashboard();
@@ -40,9 +42,12 @@ $(document).ready(function() {
                 case 'users': return loadUsersView();
                 case 'listeners': return loadListenersData();
                 case 'logs': return loadLogsView();
+                case 'server-settings': return; // Don't auto-refresh settings page
+                default: return; // Don't refresh unknown views
             }
         }, 30000);
-        
+        */
+
         // Set up keyboard shortcuts
         $(document).keydown(function(e) {
             // Ctrl+R or F5 to refresh current view
@@ -60,18 +65,21 @@ function loadUserInfo() {
         .done(function(data) {
             window.dashboardApp.currentUser = data;
             window.currentUser = data; // Backward compatibility
-            window.dashboardApp.isAdmin = data.is_admin;
-            window.isAdmin = data.is_admin; // Backward compatibility
-            
-            console.log('User loaded:', data.username, 'Admin:', data.is_admin);
-            
+            window.dashboardApp.isAdmin = data.is_admin || data.admin;
+            window.isAdmin = data.is_admin || data.admin; // Backward compatibility
+
+            console.log('User loaded:', data.username, 'Admin:', window.isAdmin);
+
             // Update UI based on user permissions
             updateUIForUser(data);
         })
         .fail(function() {
             console.error('Failed to load user info');
-            // Redirect to login if user info fails
-            window.location.href = '/dashboard';
+            // Set defaults for failed load
+            window.dashboardApp.currentUser = null;
+            window.currentUser = null;
+            window.dashboardApp.isAdmin = false;
+            window.isAdmin = false;
         });
 }
 

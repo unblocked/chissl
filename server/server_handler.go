@@ -160,6 +160,37 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		return
+	case strings.HasPrefix(path, "/api/ai-providers"):
+		pathParts := strings.Split(path, "/")
+		if len(pathParts) >= 4 && pathParts[3] != "" {
+			// Individual provider routes: /api/ai-providers/{id} or /api/ai-providers/{id}/test
+			if len(pathParts) >= 5 && pathParts[4] == "test" {
+				s.handleTestAIProvider(w, r)
+			} else {
+				s.handleAIProvider(w, r)
+			}
+		} else {
+			// Collection routes: /api/ai-providers
+			s.handleAIProviders(w, r)
+		}
+		return
+	case strings.HasPrefix(path, "/api/ai-listeners"):
+		if strings.Contains(path, "/chat") {
+			s.handleAIListenerChat(w, r)
+		} else if strings.Contains(path, "/preview") {
+			s.handleAIListenerPreview(w, r)
+		} else if strings.Contains(path, "/refine") {
+			s.handleAIListenerRefine(w, r)
+		} else if strings.Contains(path, "/force-regenerate") {
+			s.handleForceRegenerateAIListener(w, r)
+		} else if strings.Contains(path, "/debug") {
+			s.handleAIListenerDebug(w, r)
+		} else if strings.Contains(path, "/versions") || strings.Contains(path, "/activate") {
+			s.handleAIListenerVersions(w, r)
+		} else {
+			s.handleAIListeners(w, r)
+		}
+		return
 	case strings.HasPrefix(path, "/api/listener/"):
 		switch r.Method {
 		case http.MethodGet:
@@ -203,6 +234,17 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 			s.userAuthMiddleware(s.handleGetSystemInfo)(w, r)
 			return
 		}
+	case strings.HasPrefix(path, "/api/settings/feature/ai-mock-visible"):
+		switch r.Method {
+		case http.MethodGet:
+			s.userAuthMiddleware(s.handleGetAIMockVisibility)(w, r)
+			return
+		case http.MethodPut, http.MethodPost:
+			s.userAuthMiddleware(s.handleSetAIMockVisibility)(w, r)
+			return
+		}
+		return
+
 	case strings.HasPrefix(path, "/api/logs"):
 		switch r.Method {
 		case http.MethodGet:
@@ -507,6 +549,26 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 
 	//bind
 	eg, ctx := errgroup.WithContext(req.Context())
+
+	// Periodic DB heartbeat to keep tunnel status fresh while connection is alive
+	if s.db != nil {
+		eg.Go(func() error {
+			ticker := time.NewTicker(60 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-ticker.C:
+					// Touch updated_at without changing other fields
+					if err := s.db.AddTunnelConnections(tunnelID, 0); err != nil {
+						s.Debugf("tunnel heartbeat failed for %s: %v", tunnelID, err)
+					}
+				}
+			}
+		})
+	}
+
 	eg.Go(func() error {
 
 		// Track live tunnel in memory (for dashboard when DB is off)

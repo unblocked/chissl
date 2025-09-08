@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -175,4 +176,36 @@ func (d *SQLDatabase) GetSettingInt(key string, defaultValue int) (int, error) {
 	}
 
 	return intValue, nil
+}
+
+// GetSettingBool is a helper to get boolean settings with default
+func (d *SQLDatabase) GetSettingBool(key string, defaultValue bool) (bool, error) {
+	var value string
+	query := `SELECT value FROM settings WHERE key = $1`
+	if err := d.db.Get(&value, query, key); err != nil {
+		if err == sql.ErrNoRows {
+			return defaultValue, nil
+		}
+		return defaultValue, err
+	}
+	// Normalize and parse common truthy/falsey values
+	switch valueLower := strings.ToLower(strings.TrimSpace(value)); valueLower {
+	case "1", "true", "yes", "on", "enabled":
+		return true, nil
+	case "0", "false", "no", "off", "disabled":
+		return false, nil
+	default:
+		return defaultValue, nil
+	}
+}
+
+// SetSettingString upserts a string setting value
+func (d *SQLDatabase) SetSettingString(key string, value string) error {
+	query := `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, $3)
+			  ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = $3`
+	_, err := d.db.Exec(query, key, value, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to set setting %s: %w", key, err)
+	}
+	return nil
 }

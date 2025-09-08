@@ -29,8 +29,11 @@ func (s *Server) handleListListeners(w http.ResponseWriter, r *http.Request) {
 	// Filter listeners by user permissions
 	filteredListeners := s.filterListenersByUser(r, listeners)
 
+	// Enhance listeners with AI information
+	enhancedListeners := s.enhanceListenersWithAIInfo(filteredListeners)
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(filteredListeners)
+	json.NewEncoder(w).Encode(enhancedListeners)
 }
 
 // handleCreateListener creates a new listener
@@ -326,4 +329,44 @@ func (s *Server) getAuthenticatedUsername(r *http.Request) string {
 	}
 
 	return ""
+}
+
+// EnhancedListener represents a listener with AI information
+type EnhancedListener struct {
+	*database.Listener
+	Active             bool   `json:"active"` // Computed from Status field
+	AIGenerationStatus string `json:"ai_generation_status,omitempty"`
+	AIProviderName     string `json:"ai_provider_name,omitempty"`
+	AIProviderType     string `json:"ai_provider_type,omitempty"`
+	AIGenerationError  string `json:"ai_generation_error,omitempty"`
+}
+
+// enhanceListenersWithAIInfo adds AI information to listeners
+func (s *Server) enhanceListenersWithAIInfo(listeners []*database.Listener) []*EnhancedListener {
+	enhanced := make([]*EnhancedListener, len(listeners))
+
+	for i, listener := range listeners {
+		enhancedListener := &EnhancedListener{
+			Listener: listener,
+			Active:   listener.Status == "open", // Convert status to boolean
+		}
+
+		// Check if this is an AI listener
+		if listener.Mode == "ai-mock" {
+			if aiListener, err := s.db.GetAIListenerByListenerID(listener.ID); err == nil && aiListener != nil {
+				enhancedListener.AIGenerationStatus = aiListener.GenerationStatus
+				enhancedListener.AIGenerationError = aiListener.GenerationError
+
+				// Get AI provider information
+				if provider, err := s.db.GetAIProvider(aiListener.AIProviderID); err == nil {
+					enhancedListener.AIProviderName = provider.Name
+					enhancedListener.AIProviderType = provider.ProviderType
+				}
+			}
+		}
+
+		enhanced[i] = enhancedListener
+	}
+
+	return enhanced
 }

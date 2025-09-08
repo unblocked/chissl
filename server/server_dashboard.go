@@ -10,13 +10,20 @@ import (
 
 // handleDashboard serves the AdminLTE dashboard
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	// Check authentication first
+	path := r.URL.Path
+
+	// Handle static assets first (no authentication required)
+	if filepath.Ext(path) != "" || strings.Contains(path, "/static/") {
+		s.serveDashboardAsset(w, r)
+		return
+	}
+
+	// Check authentication for all other dashboard pages
 	if !s.isAuthenticated(r) {
 		s.serveDashboardLogin(w, r)
 		return
 	}
 
-	path := r.URL.Path
 	if path == "/dashboard" || path == "/dashboard/" {
 		s.serveDashboardIndex(w, r)
 		return
@@ -24,12 +31,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	if path == "/dashboard/logout" {
 		s.handleDashboardLogout(w, r)
-		return
-	}
-
-	// Handle static assets
-	if filepath.Ext(path) != "" || strings.Contains(path, "/static/") {
-		s.serveDashboardAsset(w, r)
 		return
 	}
 
@@ -283,6 +284,7 @@ func (s *Server) serveDashboardIndex(w http.ResponseWriter, r *http.Request) {
 
 <!-- Dashboard JavaScript Modules -->
 <script src="/dashboard/static/js/core/app.js"></script>
+<script src="/dashboard/static/js/core/auto-refresh.js"></script>
 <script src="/dashboard/static/js/core/navigation.js"></script>
 <script src="/dashboard/static/js/views/dashboard.js"></script>
 <script src="/dashboard/static/js/views/tunnels.js"></script>
@@ -290,6 +292,7 @@ func (s *Server) serveDashboardIndex(w http.ResponseWriter, r *http.Request) {
 <script src="/dashboard/static/js/views/listeners.js"></script>
 <script src="/dashboard/static/js/views/logs.js"></script>
 <script src="/dashboard/static/js/views/user-settings.js"></script>
+<script src="/dashboard/static/js/views/server-settings.js"></script>
 <script src="/dashboard/static/js/components/sso.js"></script>
 <script src="/dashboard/static/js/components/port-reservations.js"></script>
 <script src="/dashboard/static/js/utils/traffic-inspector.js"></script>
@@ -422,6 +425,26 @@ function loadDashboard() {
     loadQuickAccess();
     loadSSOBanner();
     loadPortAccessBanner();
+
+    // Start component-based auto-refresh for dashboard
+    startDashboardAutoRefresh();
+}
+
+function startDashboardAutoRefresh() {
+    // Stop any existing auto-refresh
+    if (typeof AutoRefresh !== 'undefined') {
+        AutoRefresh.stopAll();
+
+        // Start auto-refresh for dashboard stats (every 15 seconds)
+        AutoRefresh.start('dashboard-stats', function() {
+            loadStats();
+        }, 15000);
+
+        // Start auto-refresh for quick access tables (every 20 seconds)
+        AutoRefresh.start('dashboard-tables', function() {
+            loadQuickAccess();
+        }, 20000);
+    }
 }
 
 function loadStats() {
@@ -627,8 +650,15 @@ function clearLogsRefreshInterval() {
     }
 }
 
+function stopAllAutoRefresh() {
+    if (typeof AutoRefresh !== 'undefined') {
+        AutoRefresh.stopAll();
+    }
+}
+
 function showDashboard() {
     clearLogsRefreshInterval();
+    stopAllAutoRefresh();
     window.currentView = 'dashboard';
     $('#page-title').text('Dashboard');
     $('.nav-link').removeClass('active');
@@ -638,6 +668,7 @@ function showDashboard() {
 
 function showTunnels() {
     clearLogsRefreshInterval();
+    stopAllAutoRefresh();
     window.currentView = 'tunnels';
     $('#page-title').text('Tunnels');
     $('.nav-link').removeClass('active');
@@ -656,6 +687,7 @@ function showUsers() {
 
 function showListeners() {
     clearLogsRefreshInterval();
+    stopAllAutoRefresh();
     window.currentView = 'listeners';
     $('#page-title').text('Listeners');
     $('.nav-link').removeClass('active');
@@ -789,6 +821,21 @@ function loadTunnelsView() {
     $('#main-content').html(content);
     loadTunnelsData();
     loadSSOBannerForTunnels();
+
+    // Start auto-refresh for tunnels table
+    startTunnelsAutoRefresh();
+}
+
+function startTunnelsAutoRefresh() {
+    // Stop any existing auto-refresh
+    if (typeof AutoRefresh !== 'undefined') {
+        AutoRefresh.stopAll();
+
+        // Start auto-refresh for tunnels table (every 10 seconds)
+        AutoRefresh.start('tunnels-table', function() {
+            loadTunnelsData();
+        }, 10000);
+    }
 }
 
 function loadUsersView() {
@@ -812,55 +859,18 @@ function loadUsersView() {
     loadUsersData();
 }
 
-function loadListenersView() {
-    var content = '<div class="row">' +
-        '<div class="col-12">' +
-        '<div class="card">' +
-        '<div class="card-header">' +
-        '<h3 class="card-title">HTTP Listeners</h3>' +
-        '<div class="card-tools">' +
-        '<button class="btn btn-primary btn-sm" onclick="showAddListenerModal()">' +
-        '<i class="fas fa-plus"></i> Add Listener</button>' +
-        '<button class="btn btn-secondary btn-sm ml-2" onclick="loadListenersData()">' +
-        '<i class="fas fa-sync"></i> Refresh</button>' +
-        '</div>' +
-        '</div>' +
-        '<div class="card-body">' +
-        '<table class="table table-bordered table-striped" id="listeners-table">' +
-        '<thead><tr>' +
-        '<th>Name</th><th>URL</th><th>User</th><th>Port</th><th>Mode</th><th>Target/Response</th>' +
-        '<th>Status</th><th>Created</th><th>Actions</th>' +
-        '</tr></thead>' +
-        '<tbody id="listeners-tbody">' +
-        '<tr><td colspan="9" class="text-center">Loading...</td></tr>' +
-        '</tbody></table>' +
-        '</div></div></div></div>' +
+// Legacy loadListenersView function removed - now handled by listeners.js module
 
-        // Target/Response Info Modal
-        '<div class="modal fade" id="targetResponseModal" tabindex="-1" role="dialog">' +
-        '<div class="modal-dialog modal-lg" role="document">' +
-        '<div class="modal-content">' +
-        '<div class="modal-header">' +
-        '<h5 class="modal-title" id="targetResponseModalTitle">Content Details</h5>' +
-        '<button type="button" class="close" data-dismiss="modal">' +
-        '<span>&times;</span>' +
-        '</button>' +
-        '</div>' +
-        '<div class="modal-body">' +
-        '<div class="form-group">' +
-        '<label id="targetResponseLabel">Content:</label>' +
-        '<textarea class="form-control" id="targetResponseContent" rows="8" readonly></textarea>' +
-        '</div>' +
-        '</div>' +
-        '<div class="modal-footer">' +
-        '<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>' +
-        '<button type="button" class="btn btn-primary" onclick="copyTargetResponseContent()">Copy to Clipboard</button>' +
-        '</div>' +
-        '</div>' +
-        '</div>' +
-        '</div>';
-    $('#main-content').html(content);
-    loadListenersData();
+function startListenersAutoRefresh() {
+    // Stop any existing auto-refresh
+    if (typeof AutoRefresh !== 'undefined') {
+        AutoRefresh.stopAll();
+
+        // Start auto-refresh for listeners table (every 10 seconds)
+        AutoRefresh.start('listeners-table', function() {
+            loadListenersData();
+        }, 10000);
+    }
 }
 
 function loadLogsView() {
@@ -1042,10 +1052,7 @@ function loadUserSettingsView() {
     });
 }
 
-function loadServerSettingsView() {
-    // Rename the existing settings view to server settings
-    loadSettingsView();
-}
+// loadServerSettingsView is defined in server-settings.js
 
 function loadSettingsSystemInfo() {
     $.get('/api/system')
@@ -3145,7 +3152,9 @@ $(document).ready(function() {
         deleteUser(username);
     });
 
-    // Refresh current view every 30 seconds without changing nav
+    // Disable auto-refresh to prevent page jumping
+    // TODO: Implement proper data-only refresh without view changes
+    /*
     setInterval(function(){
         switch (window.currentView) {
             case 'dashboard': return loadDashboard();
@@ -3155,6 +3164,7 @@ $(document).ready(function() {
             case 'logs': return loadLogsView();
         }
     }, 30000);
+    */
     // Ensure nav click handlers are global before the script ends
     window.showDashboard = showDashboard;
     window.showTunnels = showTunnels;
@@ -3168,7 +3178,7 @@ $(document).ready(function() {
 
 // Load user info and set permissions
 function loadUserInfo() {
-    $.get('/api/user/info')
+    return $.get('/api/user/info')
     .done(function(data) {
         window.currentUser = data;
         window.isAdmin = data.admin || false;
@@ -3423,10 +3433,16 @@ func (s *Server) serveDashboardAsset(w http.ResponseWriter, r *http.Request) {
 	fullPath := filepath.Join("server", "dashboard", assetPath)
 
 	// Check if file exists and read it
-	content, err := os.ReadFile(fullPath)
+	// Try embedded assets first
+	embeddedPath := filepath.Join("dashboard", assetPath)
+	content, err := embeddedDashboardFS.ReadFile(embeddedPath)
 	if err != nil {
-		http.NotFound(w, r)
-		return
+		// Fallback to disk in case of dev mode or missing embed
+		content, err = os.ReadFile(fullPath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
 	}
 
 	// Set appropriate content type based on file extension

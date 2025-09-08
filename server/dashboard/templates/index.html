@@ -33,6 +33,86 @@
         .json-boolean { color: #0969da; }
         .json-null { color: #8250df; }
         .bg-light { background-color: #f8f9fa !important; }
+
+        /* Force outline button styling */
+        .btn-outline-info {
+            color: #17a2b8 !important;
+            border-color: #17a2b8 !important;
+            background-color: transparent !important;
+        }
+        .btn-outline-info:hover {
+            color: #fff !important;
+            background-color: #17a2b8 !important;
+            border-color: #17a2b8 !important;
+        }
+        .btn-outline-warning {
+            color: #ffc107 !important;
+            border-color: #ffc107 !important;
+            background-color: transparent !important;
+        }
+        .btn-outline-warning:hover {
+            color: #212529 !important;
+            background-color: #ffc107 !important;
+            border-color: #ffc107 !important;
+        }
+        .btn-outline-danger {
+            color: #dc3545 !important;
+            border-color: #dc3545 !important;
+            background-color: transparent !important;
+        }
+        .btn-outline-danger:hover {
+            color: #fff !important;
+            background-color: #dc3545 !important;
+            border-color: #dc3545 !important;
+        }
+        .btn-outline-success {
+            color: #28a745 !important;
+            border-color: #28a745 !important;
+            background-color: transparent !important;
+        }
+        .btn-outline-success:hover {
+            color: #fff !important;
+            background-color: #28a745 !important;
+            border-color: #28a745 !important;
+        }
+
+        /* Force outline styling for specific button classes */
+        .edit-user-btn.btn-outline-warning,
+        .delete-user-btn.btn-outline-danger,
+        .btn-group .btn-outline-info,
+        .btn-group .btn-outline-warning,
+        .btn-group .btn-outline-danger,
+        .btn-group .btn-outline-success {
+            background-color: transparent !important;
+            border-width: 1px !important;
+        }
+
+        .edit-user-btn.btn-outline-warning:hover,
+        .delete-user-btn.btn-outline-danger:hover,
+        .btn-group .btn-outline-info:hover,
+        .btn-group .btn-outline-warning:hover,
+        .btn-group .btn-outline-danger:hover,
+        .btn-group .btn-outline-success:hover {
+            border-width: 1px !important;
+        }
+
+        /* Nuclear option - force all buttons in tables to be outline style */
+        .table .btn-group .btn,
+        .table .btn-group-sm .btn,
+        #users-tbody .btn,
+        #listeners-tbody .btn {
+            background-color: transparent !important;
+            border-width: 1px !important;
+            border-style: solid !important;
+        }
+
+        .table .btn-group .btn:hover,
+        .table .btn-group-sm .btn:hover,
+        #users-tbody .btn:hover,
+        #listeners-tbody .btn:hover {
+            border-width: 1px !important;
+            border-style: solid !important;
+        }
     </style>
 </head>
 
@@ -97,6 +177,12 @@
                         <a href="#" class="nav-link" onclick="showListeners()">
                             <i class="nav-icon fas fa-satellite-dish"></i>
                             <p>Listeners</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link" onclick="showAIMock()">
+                            <i class="nav-icon fas fa-robot"></i>
+                            <p>AI Mock API</p>
                         </a>
                     </li>
                     <li class="nav-item admin-only" style="display: none;">
@@ -166,8 +252,10 @@
 <script src="/dashboard/static/js/views/tunnels.js"></script>
 <script src="/dashboard/static/js/views/users.js"></script>
 <script src="/dashboard/static/js/views/listeners.js"></script>
+<script src="/dashboard/static/js/views/ai-mock.js"></script>
 <script src="/dashboard/static/js/views/logs.js"></script>
 <script src="/dashboard/static/js/views/user-settings.js"></script>
+<script src="/dashboard/static/js/views/server-settings.js"></script>
 <script src="/dashboard/static/js/components/sso.js"></script>
 <script src="/dashboard/static/js/components/port-reservations.js"></script>
 <script src="/dashboard/static/js/utils/traffic-inspector.js"></script>

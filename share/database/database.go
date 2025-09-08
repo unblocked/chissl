@@ -39,6 +39,7 @@ type Database interface {
 	CreateTunnel(tunnel *Tunnel) error
 	UpdateTunnel(tunnel *Tunnel) error
 	DeleteTunnel(tunnelID string) error
+	SoftDeleteTunnel(tunnelID string) error
 	GetTunnel(tunnelID string) (*Tunnel, error)
 	ListTunnels() ([]*Tunnel, error)
 	ListActiveTunnels() ([]*Tunnel, error)
@@ -88,6 +89,8 @@ type Database interface {
 	CheckUserTunnelLimit(username string) (bool, error)
 	CheckUserListenerLimit(username string) (bool, error)
 	GetSettingInt(key string, defaultValue int) (int, error)
+	GetSettingBool(key string, defaultValue bool) (bool, error)
+	SetSettingString(key string, value string) error
 
 	// SSO configuration management
 	CreateSSOConfig(config *SSOConfig) error
@@ -108,6 +111,29 @@ type Database interface {
 	SetUserPreference(username, key, value string) error
 	DeleteUserPreference(username, key string) error
 	ListUserPreferences(username string) ([]*UserPreference, error)
+
+	// AI provider management
+	CreateAIProvider(provider *AIProvider) error
+	GetAIProvider(id string) (*AIProvider, error)
+	GetAIProviders() ([]*AIProvider, error)
+	UpdateAIProvider(provider *AIProvider) error
+	DeleteAIProvider(id string) error
+
+	// AI listener management
+	CreateAIListener(listener *AIListener) error
+	GetAIListener(id string) (*AIListener, error)
+	GetAIListenerByListenerID(listenerID string) (*AIListener, error)
+	UpdateAIListener(listener *AIListener) error
+	DeleteAIListener(id string) error
+
+	// AI Response Version methods
+	CreateAIResponseVersion(version *AIResponseVersion) error
+	GetAIResponseVersion(id string) (*AIResponseVersion, error)
+	GetActiveAIResponseVersion(aiListenerID string) (*AIResponseVersion, error)
+	ListAIResponseVersions(aiListenerID string) ([]*AIResponseVersion, error)
+	UpdateAIResponseVersion(version *AIResponseVersion) error
+	SetActiveAIResponseVersion(aiListenerID, versionID string) error
+	DeleteAIResponseVersion(id string) error
 }
 
 // User represents a user in the database
@@ -304,4 +330,54 @@ func (u *User) HasAccess(addr string) bool {
 		}
 	}
 	return false
+}
+
+// AIProvider represents an AI service provider configuration
+type AIProvider struct {
+	ID           string     `db:"id" json:"id"`
+	Name         string     `db:"name" json:"name"`
+	ProviderType string     `db:"provider_type" json:"provider_type"` // "openai", "claude"
+	APIKey       string     `db:"api_key" json:"-"`                   // Encrypted, never sent to client
+	APIEndpoint  string     `db:"api_endpoint" json:"api_endpoint"`
+	Model        string     `db:"model" json:"model"`
+	MaxTokens    int        `db:"max_tokens" json:"max_tokens"`
+	Temperature  float64    `db:"temperature" json:"temperature"`
+	Enabled      bool       `db:"enabled" json:"enabled"`
+	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
+	CreatedBy    string     `db:"created_by" json:"created_by"`
+	TestStatus   string     `db:"test_status" json:"test_status"` // "untested", "success", "failed"
+	TestMessage  string     `db:"test_message" json:"test_message"`
+	TestAt       *time.Time `db:"test_at" json:"test_at"`
+}
+
+// AIListener represents an AI-powered listener configuration
+type AIListener struct {
+	ID                 string     `db:"id" json:"id"`
+	ListenerID         string     `db:"listener_id" json:"listener_id"`
+	AIProviderID       string     `db:"ai_provider_id" json:"ai_provider_id"`
+	OpenAPISpec        string     `db:"openapi_spec" json:"openapi_spec"`
+	SystemPrompt       string     `db:"system_prompt" json:"system_prompt"`
+	ConversationThread string     `db:"conversation_thread" json:"conversation_thread"`
+	GeneratedResponses string     `db:"generated_responses" json:"generated_responses"`
+	LastGeneratedAt    *time.Time `db:"last_generated_at" json:"last_generated_at"`
+	GenerationStatus   string     `db:"generation_status" json:"generation_status"`
+	GenerationError    string     `db:"generation_error" json:"generation_error"`
+	CreatedAt          time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt          time.Time  `db:"updated_at" json:"updated_at"`
+}
+
+// AIResponseVersion represents a version of AI-generated responses for iterative refinement
+type AIResponseVersion struct {
+	ID                 string    `db:"id" json:"id"`
+	AIListenerID       string    `db:"ai_listener_id" json:"ai_listener_id"`
+	VersionNumber      int       `db:"version_number" json:"version_number"`
+	OpenAPISpec        string    `db:"openapi_spec" json:"openapi_spec"`
+	SystemPrompt       string    `db:"system_prompt" json:"system_prompt"`
+	UserInstructions   string    `db:"user_instructions" json:"user_instructions"`
+	GeneratedResponses string    `db:"generated_responses" json:"generated_responses"`
+	GenerationStatus   string    `db:"generation_status" json:"generation_status"`
+	GenerationError    string    `db:"generation_error" json:"generation_error"`
+	IsActive           bool      `db:"is_active" json:"is_active"`
+	CreatedAt          time.Time `db:"created_at" json:"created_at"`
 }

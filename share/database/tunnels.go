@@ -52,8 +52,10 @@ func (d *SQLDatabase) UpdateTunnel(tunnel *Tunnel) error {
 
 // DeleteTunnel deletes a tunnel by ID
 func (d *SQLDatabase) DeleteTunnel(tunnelID string) error {
-	query := `DELETE FROM tunnels WHERE id = $1`
+	// Best-effort delete of child connections first (in case FK cascade isn't active)
+	_, _ = d.db.Exec(`DELETE FROM connections WHERE tunnel_id = $1`, tunnelID)
 
+	query := `DELETE FROM tunnels WHERE id = $1`
 	result, err := d.db.Exec(query, tunnelID)
 	if err != nil {
 		return fmt.Errorf("failed to delete tunnel: %w", err)
@@ -68,6 +70,20 @@ func (d *SQLDatabase) DeleteTunnel(tunnelID string) error {
 		return fmt.Errorf("tunnel not found: %s", tunnelID)
 	}
 
+	return nil
+}
+
+// SoftDeleteTunnel marks a tunnel as deleted without removing data
+func (d *SQLDatabase) SoftDeleteTunnel(tunnelID string) error {
+	query := `UPDATE tunnels SET status = 'deleted', updated_at = CURRENT_TIMESTAMP WHERE id = $1`
+	result, err := d.db.Exec(query, tunnelID)
+	if err != nil {
+		return fmt.Errorf("failed to soft-delete tunnel: %w", err)
+	}
+	// idempotent: treat no rows as success
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return nil
+	}
 	return nil
 }
 
@@ -94,7 +110,7 @@ func (d *SQLDatabase) ListTunnels() ([]*Tunnel, error) {
 	var tunnels []*Tunnel
 	query := `SELECT id, username, local_port, local_host, remote_port, remote_host,
 			  status, created_at, updated_at, bytes_sent, bytes_recv, connections
-			  FROM tunnels ORDER BY created_at DESC`
+			  FROM tunnels WHERE status <> 'deleted' ORDER BY created_at DESC`
 
 	err := d.db.Select(&tunnels, query)
 	if err != nil {
