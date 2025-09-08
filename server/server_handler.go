@@ -41,6 +41,18 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 
 	//no proxy defined, provide access to health/version checks
 	path := r.URL.Path
+	// Redirect root to dashboard for browsers; avoid surprising APIs/CLIs
+	if path == "/" || path == "" {
+		accept := r.Header.Get("Accept")
+		if strings.Contains(accept, "text/html") || accept == "" || accept == "*/*" {
+			// Use 302 to satisfy some clients that do not auto-follow 303
+			http.Redirect(w, r, "/dashboard", http.StatusFound)
+		} else {
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
+	}
+
 	switch {
 	case strings.HasPrefix(path, "/health"):
 		w.Write([]byte("OK\n"))
