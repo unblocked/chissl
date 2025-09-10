@@ -205,6 +205,16 @@ func (s *Server) isPortAvailableForUser(port int, username string) (bool, string
 		return true, "" // No restrictions without database
 	}
 
+	// Allow multicast tunnel ports for all users regardless of reservation/threshold
+	// This lets users participate in multicast scenarios without hitting port limits.
+	if mts, err := s.db.ListMulticastTunnels(); err == nil {
+		for _, mt := range mts {
+			if mt.Port == port && mt.Enabled {
+				return true, ""
+			}
+		}
+	}
+
 	reserved, err := s.db.IsPortReserved(port, username)
 	if err != nil {
 		s.Debugf("Failed to check port reservation: %v", err)

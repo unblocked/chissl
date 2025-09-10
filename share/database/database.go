@@ -51,6 +51,13 @@ type Database interface {
 	AddTunnelBytes(tunnelID string, sent, recv int64) error
 	AddTunnelConnections(tunnelID string, delta int) error
 	MarkStaleTunnelsClosed(age time.Duration) error
+	DeleteClosedTunnels() error
+	DeleteClosedTunnelsOlderThan(cutoff time.Time) error
+	DeleteClosedTunnelsByUser(username string) error
+	DeleteClosedTunnelsByUserOlderThan(username string, cutoff time.Time) error
+	DeleteClosedSessionsByUser(username string) error
+	DeleteClosedSessionsByUserOlderThan(username string, cutoff time.Time) error
+	CloseActiveTunnelsByUserPorts(username string, localPort, remotePort int) error
 	// Listener management
 	CreateListener(listener *Listener) error
 	UpdateListener(listener *Listener) error
@@ -61,6 +68,16 @@ type Database interface {
 	AddListenerBytes(listenerID string, sent, recv int64) error
 	AddListenerConnections(listenerID string, delta int) error
 	MarkStaleListenersClosed(age time.Duration) error
+
+	// Multicast tunnels management
+	CreateMulticastTunnel(mt *MulticastTunnel) error
+	UpdateMulticastTunnel(mt *MulticastTunnel) error
+	DeleteMulticastTunnel(id string) error
+	GetMulticastTunnel(id string) (*MulticastTunnel, error)
+	ListMulticastTunnels() ([]*MulticastTunnel, error)
+	ListPublicMulticastTunnels() ([]*MulticastTunnel, error)
+	AddMulticastBytes(id string, sent, recv int64) error
+	AddMulticastConnections(id string, delta int) error
 
 	// User token management
 	CreateUserToken(token *UserToken) error

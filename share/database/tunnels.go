@@ -319,3 +319,52 @@ func (d *SQLDatabase) MarkStaleTunnelsClosed(age time.Duration) error {
 	_, err := d.db.Exec(query, cutoff)
 	return err
 }
+
+// DeleteClosedTunnels deletes all tunnels with status 'closed' or 'inactive'
+func (d *SQLDatabase) DeleteClosedTunnels() error {
+	query := `DELETE FROM tunnels WHERE status IN ('closed','inactive')`
+	_, err := d.db.Exec(query)
+	return err
+}
+
+// DeleteClosedTunnelsOlderThan deletes closed/inactive tunnels older than cutoff
+func (d *SQLDatabase) DeleteClosedTunnelsOlderThan(cutoff time.Time) error {
+	query := `DELETE FROM tunnels WHERE status IN ('closed','inactive') AND updated_at < $1`
+	_, err := d.db.Exec(query, cutoff)
+	return err
+}
+
+// DeleteClosedTunnelsByUserOlderThan deletes user's closed/inactive tunnels older than cutoff
+func (d *SQLDatabase) DeleteClosedTunnelsByUserOlderThan(username string, cutoff time.Time) error {
+	query := `DELETE FROM tunnels WHERE username = $1 AND status IN ('closed','inactive') AND id NOT LIKE 'sess-%' AND updated_at < $2`
+	_, err := d.db.Exec(query, username, cutoff)
+	return err
+}
+
+// DeleteClosedSessionsByUserOlderThan deletes user's closed/inactive session rows older than cutoff
+func (d *SQLDatabase) DeleteClosedSessionsByUserOlderThan(username string, cutoff time.Time) error {
+	query := `DELETE FROM tunnels WHERE username = $1 AND status IN ('closed','inactive') AND id LIKE 'sess-%' AND updated_at < $2`
+	_, err := d.db.Exec(query, username, cutoff)
+	return err
+}
+
+// DeleteClosedTunnelsByUser deletes closed/inactive tunnels for a user
+func (d *SQLDatabase) DeleteClosedTunnelsByUser(username string) error {
+	query := `DELETE FROM tunnels WHERE username = $1 AND status IN ('closed','inactive') AND id NOT LIKE 'sess-%'`
+	_, err := d.db.Exec(query, username)
+	return err
+}
+
+// DeleteClosedSessionsByUser deletes closed/inactive base session rows for a user
+func (d *SQLDatabase) DeleteClosedSessionsByUser(username string) error {
+	query := `DELETE FROM tunnels WHERE username = $1 AND status IN ('closed','inactive') AND id LIKE 'sess-%'`
+	_, err := d.db.Exec(query, username)
+	return err
+}
+
+// CloseActiveTunnelsByUserPorts marks any active per-remote rows for the same user/local/remote ports as closed
+func (d *SQLDatabase) CloseActiveTunnelsByUserPorts(username string, localPort, remotePort int) error {
+	query := `UPDATE tunnels SET status = 'closed', updated_at = CURRENT_TIMESTAMP WHERE username = $1 AND local_port = $2 AND remote_port = $3 AND status = 'open'`
+	_, err := d.db.Exec(query, username, localPort, remotePort)
+	return err
+}

@@ -109,6 +109,27 @@ func (d *SQLDatabase) getSQLiteMigrations() []string {
 		`CREATE INDEX IF NOT EXISTS idx_listeners_username ON listeners(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_listeners_status ON listeners(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_listeners_port ON listeners(port)`,
+
+		// Multicast tunnels (SQLite)
+		`CREATE TABLE IF NOT EXISTS multicast_tunnels (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			owner_username TEXT NOT NULL,
+			port INTEGER NOT NULL UNIQUE,
+			mode TEXT NOT NULL DEFAULT 'webhook',
+			enabled BOOLEAN DEFAULT 0,
+			visible BOOLEAN DEFAULT 1,
+			use_tls BOOLEAN DEFAULT 1,
+			status TEXT NOT NULL DEFAULT 'closed',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			bytes_sent INTEGER DEFAULT 0,
+			bytes_recv INTEGER DEFAULT 0,
+			connections INTEGER DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_multicast_tunnels_port ON multicast_tunnels(port)`,
+		`CREATE INDEX IF NOT EXISTS idx_multicast_tunnels_visible ON multicast_tunnels(visible)`,
+
 		// Add use_tls column to existing listeners table if it doesn't exist (SQLite)
 		`ALTER TABLE listeners ADD COLUMN use_tls BOOLEAN DEFAULT 1`,
 		// Add name column to existing listeners table if it doesn't exist (SQLite)
@@ -348,6 +369,27 @@ func (d *SQLDatabase) getPostgresMigrations() []string {
 		`CREATE INDEX IF NOT EXISTS idx_listeners_username ON listeners(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_listeners_status ON listeners(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_listeners_port ON listeners(port)`,
+
+		// Multicast tunnels (PostgreSQL)
+		`CREATE TABLE IF NOT EXISTS multicast_tunnels (
+			id VARCHAR(255) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL DEFAULT '',
+			owner_username VARCHAR(255) NOT NULL,
+			port INTEGER NOT NULL UNIQUE,
+			mode VARCHAR(50) NOT NULL DEFAULT 'webhook',
+			enabled BOOLEAN DEFAULT FALSE,
+			visible BOOLEAN DEFAULT TRUE,
+			use_tls BOOLEAN DEFAULT TRUE,
+			status VARCHAR(50) NOT NULL DEFAULT 'closed',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			bytes_sent BIGINT DEFAULT 0,
+			bytes_recv BIGINT DEFAULT 0,
+			connections INTEGER DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_multicast_tunnels_port ON multicast_tunnels(port)`,
+		`CREATE INDEX IF NOT EXISTS idx_multicast_tunnels_visible ON multicast_tunnels(visible)`,
+
 		// Add use_tls column to existing listeners table if it doesn't exist (PostgreSQL)
 		`ALTER TABLE listeners ADD COLUMN IF NOT EXISTS use_tls BOOLEAN DEFAULT TRUE`,
 		// Add name column to existing listeners table if it doesn't exist (PostgreSQL)

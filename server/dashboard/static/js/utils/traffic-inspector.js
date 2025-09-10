@@ -80,6 +80,7 @@ function showTrafficPayloads(entityId, entityType) {
 
     $('body').append(modalHtml);
     $('#payloadsModal').modal('show');
+    $('#payloadsModal').data('entityId', entityId).data('entityType', entityType);
 
     // Load recent traffic by default
     loadRecentTraffic(entityId, entityType);
@@ -106,8 +107,10 @@ function startLiveTraffic(entityId, entityType) {
     // Clear existing content
     $('#live-traffic').html('');
 
-    // Start SSE connection
-    liveEventSource = new EventSource('/api/' + entityType + '/' + entityId + '/traffic/live');
+    // Start SSE connection (capture service)
+    function normPlural(type){ if(type==='tunnel') return 'tunnels'; if(type==='listener') return 'listeners'; if((type||'').indexOf('multicast')===0) return 'multicast'; return type; }
+    var plural = normPlural(entityType);
+    liveEventSource = new EventSource('/api/capture/' + plural + '/' + encodeURIComponent(entityId) + '/stream');
     
     liveEventSource.onmessage = function(event) {
         try {
@@ -183,7 +186,9 @@ function appendLiveTraffic(data) {
 
 function loadRecentTraffic(entityId, entityType) {
     var filter = $('#filterType').val();
-    var url = '/api/' + entityType + '/' + entityId + '/traffic';
+    function normPlural(type){ if(type==='tunnel') return 'tunnels'; if(type==='listener') return 'listeners'; if((type||'').indexOf('multicast')===0) return 'multicast'; return type; }
+    var plural = normPlural(entityType);
+    var url = '/api/capture/' + plural + '/' + encodeURIComponent(entityId) + '/recent';
     if (filter) {
         url += '?type=' + filter;
     }

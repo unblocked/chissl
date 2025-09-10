@@ -68,6 +68,8 @@ type Server struct {
 	capture *capture.Service
 	// listener manager
 	listeners *ListenerManager
+	// multicast manager
+	multicasts *MulticastManager
 	// log manager
 	logManager *LogManager
 	// in-memory live tunnels when DB is not used
@@ -159,6 +161,8 @@ func NewServer(c *Config) (*Server, error) {
 		}
 		// Initialize listener manager (TLS config will be set later in StartContext)
 		server.listeners = NewListenerManager(server.capture, server.db, nil)
+		// Initialize multicast manager (TLS config will be set later in StartContext)
+		server.multicasts = NewMulticastManager(server.capture, server.db, nil)
 	}
 	// Reconciler to mark stale active tunnels as closed if not updated recently
 	go func() {
@@ -301,9 +305,14 @@ func (s *Server) StartContext(ctx context.Context, host, port string) error {
 	if s.listeners != nil && s.config.TlsConf != nil {
 		s.listeners.UpdateTLSConfig(s.config.TlsConf)
 		s.Debugf("Updated listener manager with TLS config")
-
 		// Now restore active listeners from database with proper TLS config
 		s.restoreListeners()
+	}
+	// Update multicast manager with TLS and restore enabled multicasts
+	if s.multicasts != nil && s.config.TlsConf != nil {
+		s.multicasts.UpdateTLSConfig(s.config.TlsConf)
+		s.Debugf("Updated multicast manager with TLS config")
+		s.restoreMulticasts()
 	}
 	h := http.Handler(http.HandlerFunc(s.handleClientHandler))
 	if s.Debug {
@@ -430,11 +439,35 @@ func (s *Server) restoreListeners() {
 			// Start the listener
 			if err := s.listeners.StartListener(listener, tapFactory); err != nil {
 				s.Debugf("Failed to restore listener %s on port %d: %v", listener.ID, listener.Port, err)
+
 				// Update status to error
 				listener.Status = "error"
 				_ = s.db.UpdateListener(listener)
 			} else {
 				s.Debugf("Restored listener %s on port %d (%s mode)", listener.ID, listener.Port, listener.Mode)
+			}
+		}
+	}
+}
+
+// restoreMulticasts restarts multicast tunnels that are enabled
+func (s *Server) restoreMulticasts() {
+	if s.db == nil || s.multicasts == nil {
+		return
+	}
+	mts, err := s.db.ListMulticastTunnels()
+	if err != nil {
+		s.Debugf("Failed to list multicast tunnels for restoration: %v", err)
+		return
+	}
+	for _, mt := range mts {
+		if mt.Enabled {
+			if err := s.multicasts.StartMulticast(mt); err != nil {
+				s.Debugf("Failed to start multicast %s on port %d: %v", mt.ID, mt.Port, err)
+				mt.Status = "error"
+				_ = s.db.UpdateMulticastTunnel(mt)
+			} else {
+				s.Debugf("Started multicast %s on port %d (mode=%s)", mt.ID, mt.Port, mt.Mode)
 			}
 		}
 	}

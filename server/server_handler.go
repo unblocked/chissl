@@ -1,6 +1,7 @@
 package chserver
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -119,6 +120,10 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		case http.MethodDelete:
+			if strings.HasSuffix(path, "/closed") {
+				s.userAuthMiddleware(s.handleDeleteClosedTunnels)(w, r)
+				return
+			}
 			s.userAuthMiddleware(s.handleDeleteTunnel)(w, r)
 			return
 		}
@@ -132,19 +137,19 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			if strings.HasSuffix(path, "/connections") {
-				s.combinedAuthMiddleware(s.handleListCaptureConnections)(w, r)
+				s.userAuthMiddleware(s.handleListCaptureConnections)(w, r)
 				return
 			}
 			if strings.HasSuffix(path, "/download") {
-				s.combinedAuthMiddleware(s.handleDownloadCaptureLog)(w, r)
+				s.userAuthMiddleware(s.handleDownloadCaptureLog)(w, r)
 				return
 			}
 			if strings.HasSuffix(path, "/recent") {
-				s.combinedAuthMiddleware(s.handleGetRecentEvents)(w, r)
+				s.userAuthMiddleware(s.handleGetRecentEvents)(w, r)
 				return
 			}
 			if strings.HasSuffix(path, "/stream") {
-				s.combinedAuthMiddleware(s.handleSSEStream)(w, r)
+				s.userAuthMiddleware(s.handleSSEStream)(w, r)
 				return
 			}
 		}
@@ -153,11 +158,11 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			if strings.HasSuffix(path, "/recent") {
-				s.combinedAuthMiddleware(s.handleGetRecentEvents)(w, r)
+				s.userAuthMiddleware(s.handleGetRecentEvents)(w, r)
 				return
 			}
 			if strings.HasSuffix(path, "/stream") {
-				s.combinedAuthMiddleware(s.handleSSEStream)(w, r)
+				s.userAuthMiddleware(s.handleSSEStream)(w, r)
 				return
 			}
 		}
@@ -169,6 +174,28 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		case http.MethodPost:
 			s.userAuthMiddleware(s.handleCreateListener)(w, r)
+			return
+		}
+		return
+	case strings.HasPrefix(path, "/api/multicast-tunnels"):
+		// Public listing endpoint (authenticated user, not admin-only)
+		if strings.HasSuffix(path, "/public") && r.Method == http.MethodGet {
+			s.userAuthMiddleware(s.handleListPublicMulticastTunnels)(w, r)
+			return
+		}
+		// Admin CRUD endpoints
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleListMulticastTunnels)(w, r)
+			return
+		case http.MethodPost:
+			s.combinedAuthMiddleware(s.handleCreateMulticastTunnel)(w, r)
+			return
+		case http.MethodPut, http.MethodPatch:
+			s.combinedAuthMiddleware(s.handleUpdateMulticastTunnel)(w, r)
+			return
+		case http.MethodDelete:
+			s.combinedAuthMiddleware(s.handleDeleteMulticastTunnel)(w, r)
 			return
 		}
 		return
@@ -220,11 +247,11 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			if strings.Contains(path, "/stream") {
-				s.combinedAuthMiddleware(s.handleSSEStream)(w, r)
+				s.userAuthMiddleware(s.handleSSEStream)(w, r)
 				return
 			}
 			if strings.Contains(path, "/recent") {
-				s.combinedAuthMiddleware(s.handleGetRecentEvents)(w, r)
+				s.userAuthMiddleware(s.handleGetRecentEvents)(w, r)
 				return
 			}
 		}
@@ -239,6 +266,11 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 		case http.MethodGet:
 			s.combinedAuthMiddleware(s.handleGetSessions)(w, r)
 			return
+		case http.MethodDelete:
+			if strings.HasSuffix(path, "/closed") {
+				s.userAuthMiddleware(s.handleDeleteClosedSessions)(w, r)
+				return
+			}
 		}
 	case strings.HasPrefix(path, "/api/system"):
 		switch r.Method {
@@ -503,14 +535,20 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		//confirm reverse tunnel is available
-		if !r.CanListen() {
-
+		allowed := false
+		if s.multicasts != nil {
+			if lp, err := strconv.Atoi(r.LocalPort); err == nil {
+				if am := s.multicasts.getActiveByPort(lp); am != nil && am.Config.Enabled {
+					allowed = true
+				}
+			}
+		}
+		if !allowed && !r.CanListen() {
 			// initialize capture service if not set
 			if s.config.Dashboard.Enabled && s.capture == nil {
 				// defaults: last 500 events, 64KB per event
 				s.capture = capture.NewService(500, 64*1024)
 			}
-
 			failed(s.Errorf("Server cannot listen on %s", r.String()))
 			return
 		}
@@ -522,12 +560,17 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 	tunnelID := fmt.Sprintf("sess-%d", id)
 	var tapFactory tunnel.TapFactory
 	if s.config.Dashboard.Enabled && s.capture != nil {
-		tapFactory = capture.NewTapFactory(s.capture, tunnelID, func() string {
-			if user != nil {
-				return user.Name
-			}
-			return ""
-		}(), 500)
+		// Build mapping so each remote has distinct capture id (sessionID-r{index}), AND also emit to base session id and canonical per-user+ports ID
+		portToIndex := map[string]int{}
+		for i, r := range c.Remotes {
+			portToIndex[r.LocalPort] = i
+		}
+		uname := ""
+		if user != nil {
+			uname = user.Name
+		}
+		unameEnc := base64.RawURLEncoding.EncodeToString([]byte(uname))
+		tapFactory = capture.NewTripleTapFactoryWithCanonical(s.capture, tunnelID, uname, 500, portToIndex, unameEnc)
 	}
 	tun := tunnel.New(tunnel.Config{
 		Logger:     l,
@@ -544,18 +587,33 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 		}(),
 	})
 
-	// Upsert active tunnel into DB so it appears in dashboard
+	// Upsert active tunnels into DB so they appear in dashboard (base session + one row per remote)
+	// Canonical per-remote tunnel IDs use URL-safe base64 of username for isolation between users
+	unameEnc := base64.RawURLEncoding.EncodeToString([]byte(tun.Username))
 	if s.db != nil {
-		// Only record the first remote for now to fill ports/hosts
-		var localPort, remotePort int
-		if len(c.Remotes) > 0 {
-			lp, _ := strconv.Atoi(c.Remotes[0].LocalPort)
-			rp, _ := strconv.Atoi(c.Remotes[0].RemotePort)
-			localPort, remotePort = lp, rp
+		// base session row (no specific ports)
+		{
+			t := &database.Tunnel{ID: tunnelID, Username: tun.Username, Status: "open"}
+			if e := s.db.CreateTunnel(t); e != nil {
+				_ = s.db.UpdateTunnel(t)
+			}
 		}
-		t := &database.Tunnel{ID: tunnelID, Username: tun.Username, LocalPort: localPort, LocalHost: c.Remotes[0].LocalHost, RemotePort: remotePort, RemoteHost: c.Remotes[0].RemoteHost, Status: "open"}
-		if e := s.db.CreateTunnel(t); e != nil {
-			_ = s.db.UpdateTunnel(t)
+		for _, rmt := range c.Remotes {
+			lp, _ := strconv.Atoi(rmt.LocalPort)
+			// Skip DB row for multicast subscriber remotes so they don't appear as regular tunnels
+			if s.multicasts != nil {
+				if am := s.multicasts.getActiveByPort(lp); am != nil && am.Config.Enabled {
+					continue
+				}
+			}
+			rp, _ := strconv.Atoi(rmt.RemotePort)
+			// Ensure only one open row per user/local/remote combo by closing any previous open rows
+			_ = s.db.CloseActiveTunnelsByUserPorts(tun.Username, lp, rp)
+			id := fmt.Sprintf("tun-%s-%d-%d", unameEnc, lp, rp)
+			t := &database.Tunnel{ID: id, Username: tun.Username, LocalPort: lp, LocalHost: rmt.LocalHost, RemotePort: rp, RemoteHost: rmt.RemoteHost, Status: "open"}
+			if e := s.db.CreateTunnel(t); e != nil {
+				_ = s.db.UpdateTunnel(t)
+			}
 		}
 	}
 
@@ -572,9 +630,18 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 				case <-ctx.Done():
 					return nil
 				case <-ticker.C:
-					// Touch updated_at without changing other fields
-					if err := s.db.AddTunnelConnections(tunnelID, 0); err != nil {
-						s.Debugf("tunnel heartbeat failed for %s: %v", tunnelID, err)
+					// Touch updated_at without changing other fields for base and each remote row
+					_ = s.db.AddTunnelConnections(tunnelID, 0)
+					for _, rmt := range c.Remotes {
+						lp, _ := strconv.Atoi(rmt.LocalPort)
+						if s.multicasts != nil {
+							if am := s.multicasts.getActiveByPort(lp); am != nil && am.Config.Enabled {
+								continue
+							}
+						}
+						rp, _ := strconv.Atoi(rmt.RemotePort)
+						id := fmt.Sprintf("tun-%s-%d-%d", unameEnc, lp, rp)
+						_ = s.db.AddTunnelConnections(id, 0)
 					}
 				}
 			}
@@ -583,25 +650,43 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 
 	eg.Go(func() error {
 
-		// Track live tunnel in memory (for dashboard when DB is off)
+		// Track live tunnels in memory (for dashboard when DB is off)
 		if s.db == nil {
-			var localPort, remotePort int
-			var localHost, remoteHost string
-			if len(c.Remotes) > 0 {
-				localHost = c.Remotes[0].LocalHost
-				remoteHost = c.Remotes[0].RemoteHost
-				lp, _ := strconv.Atoi(c.Remotes[0].LocalPort)
-				rp, _ := strconv.Atoi(c.Remotes[0].RemotePort)
-				localPort, remotePort = lp, rp
-			}
 			s.liveMu.Lock()
-			s.liveTunnels[tunnelID] = &database.Tunnel{ID: tunnelID, Username: tun.Username, LocalPort: localPort, LocalHost: localHost, RemotePort: remotePort, RemoteHost: remoteHost, Status: "open", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+			// base session entry
+			s.liveTunnels[tunnelID] = &database.Tunnel{ID: tunnelID, Username: tun.Username, Status: "open", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+			for _, rmt := range c.Remotes {
+				lp, _ := strconv.Atoi(rmt.LocalPort)
+				if s.multicasts != nil {
+					if am := s.multicasts.getActiveByPort(lp); am != nil && am.Config.Enabled {
+						continue
+					}
+				}
+				rp, _ := strconv.Atoi(rmt.RemotePort)
+				id := fmt.Sprintf("tun-%s-%d-%d", unameEnc, lp, rp)
+				s.liveTunnels[id] = &database.Tunnel{ID: id, Username: tun.Username, LocalPort: lp, LocalHost: rmt.LocalHost, RemotePort: rp, RemoteHost: rmt.RemoteHost, Status: "open", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+			}
 			s.liveMu.Unlock()
 			defer func() {
 				s.liveMu.Lock()
+				// mark base and remotes inactive
 				if t, ok := s.liveTunnels[tunnelID]; ok {
 					t.Status = "inactive"
 					t.UpdatedAt = time.Now()
+				}
+				for _, rmt := range c.Remotes {
+					lp, _ := strconv.Atoi(rmt.LocalPort)
+					if s.multicasts != nil {
+						if am := s.multicasts.getActiveByPort(lp); am != nil && am.Config.Enabled {
+							continue
+						}
+					}
+					rp, _ := strconv.Atoi(rmt.RemotePort)
+					id := fmt.Sprintf("tun-%s-%d-%d", unameEnc, lp, rp)
+					if t, ok := s.liveTunnels[id]; ok {
+						t.Status = "inactive"
+						t.UpdatedAt = time.Now()
+					}
 				}
 				s.liveMu.Unlock()
 			}()
@@ -611,13 +696,42 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 		return tun.BindSSH(ctx, sshConn, reqs, chans)
 	})
 	eg.Go(func() error {
-		//connected, setup reversed-remotes?
+		// connected, setup reversed-remotes? For multicast ports, register as subscribers instead of binding listeners
 		serverInbound := c.Remotes.Reversed(true)
-		if len(serverInbound) == 0 {
+		inboundFiltered := make([]*settings.Remote, 0, len(serverInbound))
+		// Track subs to unregister on session close
+		type subKey struct {
+			port int
+			id   string
+		}
+		var subs []subKey
+		if s.multicasts != nil {
+			for i, rmt := range serverInbound {
+				lp, _ := strconv.Atoi(rmt.LocalPort)
+				if am := s.multicasts.getActiveByPort(lp); am != nil && am.Config.Enabled {
+					subID := fmt.Sprintf("%s-r%d", tunnelID, i)
+					_ = s.multicasts.AddSubscriber(lp, &subscriber{ID: subID, Tun: tun, Remote: *rmt, Username: tun.Username})
+					subs = append(subs, subKey{port: lp, id: subID})
+					continue
+				}
+				inboundFiltered = append(inboundFiltered, rmt)
+			}
+			if len(subs) > 0 {
+				go func(keys []subKey) {
+					<-ctx.Done()
+					for _, k := range keys {
+						s.multicasts.RemoveSubscriber(k.port, k.id)
+					}
+				}(subs)
+			}
+		} else {
+			inboundFiltered = serverInbound
+		}
+		if len(inboundFiltered) == 0 {
 			return nil
 		}
-		//block
-		return tun.BindRemotes(ctx, serverInbound)
+		// block on non-multicast remotes
+		return tun.BindRemotes(ctx, inboundFiltered)
 	})
 	err = eg.Wait()
 	// Persist/update active tunnel info in DB if configured
@@ -627,8 +741,19 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 		if err != nil && !strings.HasSuffix(err.Error(), "EOF") {
 			status = "error"
 		}
-		t := &database.Tunnel{ID: tunnelID, Username: tun.Username, Status: status}
-		_ = s.db.UpdateTunnel(t)
+		// base session row
+		_ = s.db.UpdateTunnel(&database.Tunnel{ID: tunnelID, Username: tun.Username, Status: status})
+		for _, rmt := range c.Remotes {
+			lp, _ := strconv.Atoi(rmt.LocalPort)
+			if s.multicasts != nil {
+				if am := s.multicasts.getActiveByPort(lp); am != nil && am.Config.Enabled {
+					continue
+				}
+			}
+			rp, _ := strconv.Atoi(rmt.RemotePort)
+			id := fmt.Sprintf("tun-%s-%d-%d", unameEnc, lp, rp)
+			_ = s.db.UpdateTunnel(&database.Tunnel{ID: id, Username: tun.Username, Status: status})
+		}
 	}
 	if err != nil && !strings.HasSuffix(err.Error(), "EOF") {
 		l.Debugf("Closed connection (%s)", err)

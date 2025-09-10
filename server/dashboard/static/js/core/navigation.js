@@ -25,8 +25,50 @@ $(document).ready(function() {
 
     $('a[onclick="showListeners()"]').closest('li').after(newListenersMenuItem);
     $('a[onclick="showTunnels()"]').closest('li').after(newTunnelsMenuItem);
+    // Inject Multicast menu item next to Tunnels
+    var multicastMenuItem = '<li class="nav-item">'+
+        '<a href="#" class="nav-link" onclick="showMulticast()">'+
+        '<i class="nav-icon fas fa-broadcast-tower"></i>'+
+        '<p>Multi-cast Tunnels</p>'+
+        '</a>'+
+        '</li>';
+    if ($('a[onclick="showNewTunnels()"]').length) {
+        $('a[onclick="showNewTunnels()"]').closest('li').after(multicastMenuItem);
+    } else if ($('a[onclick="showTunnels()"]').length) {
+        $('a[onclick="showTunnels()"]').closest('li').after(multicastMenuItem);
+    } else if ($('a[onclick="showListeners()"]').length) {
+        $('a[onclick="showListeners()"]').closest('li').after(multicastMenuItem);
+    } else {
+        $('.nav-sidebar').first().append(multicastMenuItem);
+    }
     console.log('🆕 New Listeners menu item injected dynamically');
     console.log('🆕 New Tunnels menu item injected dynamically');
+    console.log('🆕 Multicast menu item injected dynamically');
+
+    // Reorder menu to desired sequence
+    function reorderMenu(){
+      var $menu = $('.nav-sidebar').first();
+      if (!$menu.length) return;
+      var liDashboard = $('a[onclick="showDashboard()"]').closest('li');
+      var liTunnels = $('a[onclick="showNewTunnels()"]').closest('li');
+      if (!liTunnels.length) liTunnels = $('a[onclick="showTunnels()"]').closest('li');
+      var liMulticast = $('a[onclick="showMulticast()"]').closest('li');
+      var liListeners = $('a[onclick="showNewListeners()"]').closest('li');
+      if (!liListeners.length) liListeners = $('a[onclick="showListeners()"]').closest('li');
+      var liAIMock = $('a[onclick="showAIMock()"]').closest('li');
+      var liUsers = $('a[onclick="showUsers()"]').closest('li');
+      var liUserSettings = $('a[onclick="showUserSettings()"]').closest('li');
+      var liServerSettings = $('a[onclick="showServerSettings()"]').closest('li');
+      var liLogs = $('a[onclick="showLogs()"]').closest('li');
+      var order = [liDashboard, liTunnels, liMulticast, liListeners, liAIMock, liUsers, liUserSettings, liServerSettings, liLogs];
+      var existing = order.filter(function($li){ return $li && $li.length; });
+      if (!existing.length) return;
+      // Preserve only these items; others will be appended after
+      existing.forEach(function($li){ $li.detach(); });
+      // Append in desired order
+      existing.forEach(function($li){ $menu.append($li); });
+    }
+    reorderMenu();
 
     // Hide legacy (old) menu items for Tunnels and Listeners
     $('a[onclick="showTunnels()"]').closest('li').hide();
@@ -43,6 +85,12 @@ $(document).ready(function() {
     newTunnelsScript.onload = function() { console.log('🆕 New Tunnels JavaScript loaded dynamically'); };
     document.head.appendChild(newTunnelsScript);
 
+    // Load Multicast view script lazily
+    var multicastScript = document.createElement('script');
+    multicastScript.src = '/dashboard/static/js/views/multicast.js';
+    multicastScript.onload = function() { console.log('\ud83d\udef0\ufe0f Multicast JavaScript loaded dynamically'); };
+    document.head.appendChild(multicastScript);
+
     // Fetch experimental feature flag for AI Mock visibility
     $.get('/api/settings/feature/ai-mock-visible')
       .done(function(res) {
@@ -57,6 +105,7 @@ $(document).ready(function() {
                   '</li>';
               $('a[onclick="showListeners()"]').closest('li').after(aiMockMenuItem);
               console.log('🤖 AI Mock API menu item injected dynamically');
+              if (typeof reorderMenu === 'function') reorderMenu();
               // Load AI Mock view script lazily
               var aiScript = document.createElement('script');
               aiScript.src = '/dashboard/static/js/views/ai-mock.js';
@@ -114,6 +163,9 @@ function loadViewFromURL() {
             break;
         case 'new-tunnels':
             showNewTunnelsFromURL();
+            break;
+        case 'multicast':
+            if (typeof showMulticastFromURL === 'function') { showMulticastFromURL(); } else { showDashboardFromURL(); }
             break;
         case 'users':
             if (window.dashboardApp.currentUser && window.dashboardApp.currentUser.is_admin) {

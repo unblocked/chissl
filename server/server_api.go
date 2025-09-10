@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/NextChapterSoftware/chissl/share/database"
@@ -421,10 +422,13 @@ func (s *Server) handleGetSystemInfo(w http.ResponseWriter, r *http.Request) {
 func getEntityIDFromPath(path string) (string, string) {
 	parts := splitPath(path)
 	if len(parts) >= 4 && parts[1] == "capture" {
-		entityType := parts[2] // "tunnels" or "listeners"
+		entityType := parts[2] // "tunnels", "listeners", or "multicast(-tunnels)"
 		entityID := parts[3]
-		if entityType == "tunnels" || entityType == "listeners" {
-			return entityID, entityType[:len(entityType)-1] // remove 's' to get "tunnel" or "listener"
+		switch entityType {
+		case "tunnels", "listeners":
+			return entityID, entityType[:len(entityType)-1]
+		case "multicast", "multicasts", "multicast-tunnels":
+			return entityID, "multicast"
 		}
 	}
 	return "", ""
@@ -501,6 +505,8 @@ func (s *Server) userHasEntityAccess(r *http.Request, entityID, entityType strin
 		return s.userHasTunnelAccess(r, entityID)
 	} else if entityType == "listener" {
 		return s.userHasListenerAccess(r, entityID)
+	} else if entityType == "multicast" {
+		return s.userHasMulticastAccess(r, entityID)
 	}
 	return false
 }
@@ -526,8 +532,32 @@ func (s *Server) userHasListenerAccess(r *http.Request, listenerID string) bool 
 	if err != nil {
 		return false
 	}
-
 	return listener.Username == username
+}
+
+// userHasMulticastAccess checks if user can see a multicast tunnel
+func (s *Server) userHasMulticastAccess(r *http.Request, id string) bool {
+	if s.db == nil {
+		return false
+	}
+	username := s.getCurrentUsername(r)
+	if username == "" {
+		return false
+	}
+	// Admins have access to all
+	if s.isUserAdmin(r.Context()) {
+		return true
+	}
+	mt, err := s.db.GetMulticastTunnel(id)
+	if err != nil {
+		return false
+	}
+	// Visible to all users if visible flag set
+	if mt.Visible {
+		return true
+	}
+	// Otherwise only owner can access
+	return mt.Owner == username
 }
 
 // ---- Settings: Experimental Features ----
@@ -567,6 +597,92 @@ func (s *Server) handleSetAIMockVisibility(w http.ResponseWriter, r *http.Reques
 	}
 	if err := s.db.SetSettingString("feature_ai_mock_visible", val); err != nil {
 		http.Error(w, "Failed to persist setting", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DELETE /api/tunnels/closed — delete current user's closed/inactive tunnels
+// Admins may delete all by passing ?all=true
+func (s *Server) handleDeleteClosedTunnels(w http.ResponseWriter, r *http.Request) {
+	if s.db == nil {
+		http.Error(w, "Database not configured", http.StatusServiceUnavailable)
+		return
+	}
+	q := r.URL.Query()
+	all := q.Get("all") == "true"
+	daysStr := q.Get("days")
+	var cutoff *time.Time
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
+			c := time.Now().Add(-time.Duration(d) * 24 * time.Hour)
+			cutoff = &c
+		}
+	}
+	if all {
+		if !s.isUserAdmin(r.Context()) {
+			http.Error(w, "Admin privileges required", http.StatusForbidden)
+			return
+		}
+		var err error
+		if cutoff != nil {
+			err = s.db.DeleteClosedTunnelsOlderThan(*cutoff)
+		} else {
+			err = s.db.DeleteClosedTunnels()
+		}
+		if err != nil {
+			http.Error(w, "Failed to delete closed tunnels", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	// User-scoped delete
+	username := s.getCurrentUsername(r)
+	if username == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var err error
+	if cutoff != nil {
+		err = s.db.DeleteClosedTunnelsByUserOlderThan(username, *cutoff)
+	} else {
+		err = s.db.DeleteClosedTunnelsByUser(username)
+	}
+	if err != nil {
+		http.Error(w, "Failed to delete closed tunnels", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DELETE /api/sessions/closed — delete current user's closed/inactive sessions (base session rows)
+func (s *Server) handleDeleteClosedSessions(w http.ResponseWriter, r *http.Request) {
+	if s.db == nil {
+		http.Error(w, "Database not configured", http.StatusServiceUnavailable)
+		return
+	}
+	username := s.getCurrentUsername(r)
+	if username == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	q := r.URL.Query()
+	daysStr := q.Get("days")
+	var err error
+	if daysStr != "" {
+		if d, e := strconv.Atoi(daysStr); e == nil && d > 0 {
+			cutoff := time.Now().Add(-time.Duration(d) * 24 * time.Hour)
+			err = s.db.DeleteClosedSessionsByUserOlderThan(username, cutoff)
+		} else {
+			http.Error(w, "Invalid days parameter", http.StatusBadRequest)
+			return
+		}
+	} else {
+		err = s.db.DeleteClosedSessionsByUser(username)
+	}
+	if err != nil {
+		http.Error(w, "Failed to delete closed sessions", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

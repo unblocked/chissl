@@ -8,8 +8,12 @@ function loadNewTunnelsView() {
         '<div class="card-header">' +
         '<h3 class="card-title">Active Tunnels</h3>' +
         '<div class="card-tools">' +
-        '<button class="btn btn-secondary btn-sm" onclick="loadNewTunnelsData()" title="Refresh">' +
-        '<i class="fas fa-sync-alt"></i> Refresh</button>' +
+          '<div class="custom-control custom-switch d-inline-block mr-2" title="Show closed tunnels">' +
+            '<input type="checkbox" class="custom-control-input" id="toggle-closed-tunnels">' +
+            '<label class="custom-control-label" for="toggle-closed-tunnels">Show closed</label>' +
+          '</div>' +
+          '<button class="btn btn-outline-danger btn-sm mr-2" id="delete-closed-tunnels-top">Delete closed</button>' +
+          '<button class="btn btn-secondary btn-sm" id="refresh-tunnels" title="Refresh"><i class="fas fa-sync-alt"></i> Refresh</button>' +
         '</div>' +
         '</div>' +
         '<div class="card-body">' +
@@ -22,10 +26,69 @@ function loadNewTunnelsView() {
         '</div>' +
         '</div>' +
         '</div>' +
+        // Sessions card below
+        '<div class="card mt-3">' +
+        '<div class="card-header">' +
+        '<h3 class="card-title">Tunnel Sessions (per-session capture)</h3>' +
+        '<div id="session-controls" class="card-tools" style="display:none;">' +
+          '<div class="custom-control custom-switch d-inline-block mr-2" title="Show closed sessions">' +
+            '<input type="checkbox" class="custom-control-input" id="toggle-closed-sessions">' +
+            '<label class="custom-control-label" for="toggle-closed-sessions">Show closed</label>' +
+          '</div>' +
+          '<button class="btn btn-outline-danger btn-sm mr-2" id="delete-closed-sessions">Delete closed</button>' +
+          '<button class="btn btn-secondary btn-sm" id="refresh-sessions" title="Refresh"><i class="fas fa-sync-alt"></i> Refresh</button>' +
+        '</div>' +
+        '</div>' +
+        '<div class="card-body">' +
+        '<div class="table-responsive">' +
+        '<table class="table table-bordered table-striped">' +
+        '<thead><tr><th>Session</th><th>User</th><th>Status</th><th>Connected</th><th>Actions</th></tr></thead>' +
+        '<tbody id="session-tunnels-tbody"><tr><td colspan="5" class="text-center">Loading sessions...</td></tr></tbody>' +
+        '</table>' +
+        '<div id="session-tunnels-info" class="mt-2 text-muted small"></div>' +
+        '</div>' +
+        '</div>' +
+        '</div>' +
         '</div>' +
         '</div>';
 
     $('#main-content').html(content);
+    // Show controls (visible to all users)
+    $('#session-controls').show();
+    // Reflect persisted toggle state
+    $('#toggle-closed-tunnels').prop('checked', !!newTunnelsShowClosedTunnels);
+    $('#toggle-closed-sessions').prop('checked', !!newTunnelsShowClosedSessions);
+    // Wire controls (sessions)
+    $('#toggle-closed-sessions').off('change').on('change', function(){ newTunnelsShowClosedSessions = !!this.checked; try{ localStorage.setItem('showClosedSessions', JSON.stringify(newTunnelsShowClosedSessions)); }catch(e){} loadNewTunnelsData(); });
+    $('#delete-closed-sessions').off('click').on('click', function(){
+        var days = prompt('Delete closed sessions older than N days (leave blank for ALL):', '30');
+        var url = '/api/sessions/closed';
+        if (days && !isNaN(parseInt(days,10)) && parseInt(days,10) > 0) {
+            url += '?days=' + parseInt(days,10);
+        }
+        if (confirm('Are you sure you want to delete the selected closed sessions?')) {
+            $.ajax({url:url, method:'DELETE'})
+              .done(loadNewTunnelsData)
+              .fail(function(xhr){ alert('Failed: '+(xhr.responseText||xhr.statusText)); });
+        }
+    });
+    $('#refresh-sessions').off('click').on('click', function(){ loadNewTunnelsData(); });
+    // Wire controls (tunnels top)
+    $('#toggle-closed-tunnels').off('change').on('change', function(){ newTunnelsShowClosedTunnels = !!this.checked; try{ localStorage.setItem('showClosedTunnels', JSON.stringify(newTunnelsShowClosedTunnels)); }catch(e){} loadNewTunnelsData(); });
+    $('#delete-closed-tunnels-top').off('click').on('click', function(){
+        var days = prompt('Delete closed tunnels older than N days (leave blank for ALL):', '30');
+        var url = '/api/tunnels/closed';
+        if (days && !isNaN(parseInt(days,10)) && parseInt(days,10) > 0) {
+            url += '?days=' + parseInt(days,10);
+        }
+        if (confirm('Are you sure you want to delete the selected closed tunnels?')) {
+            $.ajax({url:url, method:'DELETE'})
+              .done(loadNewTunnelsData)
+              .fail(function(xhr){ alert('Failed: '+(xhr.responseText||xhr.statusText)); });
+        }
+    });
+    $('#refresh-tunnels').off('click').on('click', function(){ loadNewTunnelsData(); });
+
     loadNewTunnelsData();
 
     // Start auto-refresh every 10 seconds
@@ -35,8 +98,12 @@ function loadNewTunnelsView() {
 // Auto-refresh functionality
 var newTunnelsRefreshInterval = null;
 // Track client-side hidden tunnels (soft-hide)
+var newTunnelsShowClosedTunnels = (function(){ try{ return JSON.parse(localStorage.getItem('showClosedTunnels')||'false'); } catch(e){ return false; } })();
+
 window.deletedTunnelIds = window.deletedTunnelIds || new Set();
 var newTunnelsShowAll = false;
+var newTunnelsShowClosedSessions = (function(){ try{ return JSON.parse(localStorage.getItem('showClosedSessions')||'false'); } catch(e){ return false; } })();
+function isAdmin(){ try{ if(window.isAdmin===true) return true; var u=window.currentUser|| (window.dashboardApp&&window.dashboardApp.currentUser)||null; return !!(u&&(u.admin||u.is_admin)); }catch(e){ return false; } }
 
 
 function startNewTunnelsAutoRefresh() {
@@ -66,9 +133,18 @@ function loadNewTunnelsData() {
         .done(function(data) {
             var tbody = '';
 
-            if (data && data.length > 0) {
+            var all = Array.isArray(data) ? data : [];
+            // Partition: sessions start with 'sess-', tunnels are everything else
+            var sessions = all.filter(function(t){ return /^sess-/.test(t.id || ''); });
+            var perRemote = all.filter(function(t){ return !/^sess-/.test(t.id || ''); });
+    // Show only active/open tunnels in top table; sessions table is toggleable
+    var isOpen = function(s){ var st=(s.status||'').toLowerCase(); return st === 'open' || st === 'active'; };
+    if (!newTunnelsShowClosedTunnels) { perRemote = perRemote.filter(isOpen); }
+    if (!newTunnelsShowClosedSessions) { sessions = sessions.filter(isOpen); }
+
+            if (all.length > 0) {
                 // Filter out client-side hidden tunnels
-                var dataFiltered = data.filter(function(t){ return !(window.deletedTunnelIds && window.deletedTunnelIds.has(t.id)); });
+                var dataFiltered = perRemote.filter(function(t){ return !(window.deletedTunnelIds && window.deletedTunnelIds.has(t.id)); });
 
                 // Sort with active/open first, then by most recent updated/created time
                 var order = { 'open': 0, 'active': 0, 'error': 1, 'closed': 2, 'inactive': 3 };
@@ -94,7 +170,8 @@ function loadNewTunnelsData() {
 
                     var connectedTime = (tunnel.updated_at || tunnel.created_at) ? new Date(tunnel.updated_at || tunnel.created_at).toLocaleString() : 'Never';
 
-                    var url = 'http://' + window.location.hostname + ':' + (tunnel.local_port || '?');
+                    var scheme = (window.location && window.location.protocol === 'https:') ? 'https' : 'http';
+                    var url = scheme + '://' + window.location.hostname + ':' + (tunnel.local_port || '?');
 
                     tbody += '<tr>' +
                         '<td>' +
@@ -127,6 +204,42 @@ function loadNewTunnelsData() {
                 $('#new-tunnels-info').html('');
             }
             $('#new-tunnels-tbody').html(tbody);
+
+            // Render sessions table
+            var sessBody = '';
+            if (sessions.length > 0) {
+                // Sort sessions similar to tunnels
+                var order = { 'open': 0, 'active': 0, 'error': 1, 'closed': 2, 'inactive': 3 };
+                var sortedSess = sessions.slice().sort(function(a,b){
+                    var ra = order[(a.status||'').toLowerCase()] ?? 99;
+                    var rb = order[(b.status||'').toLowerCase()] ?? 99;
+                    if (ra !== rb) return ra - rb;
+                    var ta = new Date(a.updated_at || a.created_at || 0).getTime();
+                    var tb = new Date(b.updated_at || b.created_at || 0).getTime();
+                    return tb - ta;
+                });
+                sortedSess.forEach(function(s) {
+                    var status = (s.status || '').toLowerCase();
+                    var statusClass = (status === 'open' || status === 'active') ? 'badge-success' : (status === 'error' ? 'badge-warning' : 'badge-secondary');
+                    var connectedTime = (s.updated_at || s.created_at) ? new Date(s.updated_at || s.created_at).toLocaleString() : 'Never';
+                    sessBody += '<tr>'+
+                        '<td><code>'+escapeHtml(s.id)+'</code></td>'+
+                        '<td>'+escapeHtml(s.username || 'Unknown')+'</td>'+
+                        '<td><span class="badge '+statusClass+'">'+(s.status||'Unknown')+'</span></td>'+
+                        '<td><small>'+connectedTime+'</small></td>'+
+                        '<td>'+
+                          '<div class="btn-group btn-group-sm" role="group">'+
+                          '<button class="btn btn-outline-info" onclick="showTrafficPayloads(\'' + (s.id || '') + '\', \'tunnel\')" title="View Session Traffic">'+
+                          '<i class="fas fa-eye"></i></button>'+
+                          '</div>'+
+                        '</td>'+
+                        '</tr>';
+                });
+            } else {
+                sessBody = '<tr><td colspan="5" class="text-center text-muted">No sessions</td></tr>';
+            }
+            $('#session-tunnels-tbody').html(sessBody);
+
             // Info footer with toggle
             try {
                 var infoHtml = '';
