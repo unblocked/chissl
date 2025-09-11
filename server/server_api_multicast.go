@@ -38,7 +38,7 @@ func (s *Server) handleCreateMulticastTunnel(w http.ResponseWriter, r *http.Requ
 	if req.Mode == "" {
 		req.Mode = "webhook"
 	}
-	if req.Mode != "webhook" {
+	if req.Mode != "webhook" && req.Mode != "bidirectional" {
 		http.Error(w, "Unsupported mode", http.StatusBadRequest)
 		return
 	}
@@ -155,10 +155,14 @@ func (s *Server) handleUpdateMulticastTunnel(w http.ResponseWriter, r *http.Requ
 	if req.Port != nil {
 		current.Port = *req.Port
 	}
+	modeChanged := false
 	if req.Mode != nil {
-		if *req.Mode != "webhook" {
+		if *req.Mode != "webhook" && *req.Mode != "bidirectional" {
 			http.Error(w, "Unsupported mode", http.StatusBadRequest)
 			return
+		}
+		if current.Mode != *req.Mode {
+			modeChanged = true
 		}
 		current.Mode = *req.Mode
 	}
@@ -172,12 +176,18 @@ func (s *Server) handleUpdateMulticastTunnel(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Update failed", http.StatusInternalServerError)
 		return
 	}
-	// Start/stop runtime as needed
-	if req.Enabled != nil && s.multicasts != nil {
-		if *req.Enabled {
-			_ = s.multicasts.StartMulticast(current)
-		} else {
+	// Start/stop/restart runtime as needed
+	if s.multicasts != nil {
+		if req.Enabled != nil {
+			if *req.Enabled {
+				_ = s.multicasts.StartMulticast(current)
+			} else {
+				_ = s.multicasts.StopMulticast(current.ID)
+			}
+		} else if modeChanged && current.Enabled {
+			// Restart to apply mode change
 			_ = s.multicasts.StopMulticast(current.ID)
+			_ = s.multicasts.StartMulticast(current)
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

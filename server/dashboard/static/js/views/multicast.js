@@ -34,8 +34,9 @@
             <div class="form-row">
               <div class="form-group col-md-4"><label>Name</label><input id="mc-name" class="form-control" placeholder="Webhook Fan-out"/></div>
               <div class="form-group col-md-2"><label>Port</label><input id="mc-port" type="number" class="form-control" placeholder="8443"/></div>
-              <div class="form-group col-md-3"><label>Visible</label><br><input id="mc-visible" type="checkbox" checked/> Visible to all users</div>
-              <div class="form-group col-md-3"><label>Enabled</label><br><input id="mc-enabled" type="checkbox"/> Start now</div>
+              <div class="form-group col-md-2"><label>Visible</label><br><input id="mc-visible" type="checkbox" checked/> Visible to all users</div>
+              <div class="form-group col-md-2"><label>Enabled</label><br><input id="mc-enabled" type="checkbox"/> Start now</div>
+              <div class="form-group col-md-2"><label>Bidirectional</label><br><input id="mc-bidir" type="checkbox"/> Forward and return first response</div>
             </div>
             <button id="mc-create" class="btn btn-outline-primary">Create</button>
           </div>
@@ -45,7 +46,7 @@
         const payload = {
           name: ($('#mc-name').val()||'').trim(),
           port: parseInt($('#mc-port').val(), 10),
-          mode: 'webhook',
+          mode: $('#mc-bidir').is(':checked') ? 'bidirectional' : 'webhook',
           visible: $('#mc-visible').is(':checked'),
           enabled: $('#mc-enabled').is(':checked')
         };
@@ -246,8 +247,9 @@
               <div class="form-group"><label>Name</label><input id="mc-edit-name" class="form-control" value="${escapeHtml(it.name||'')}"/></div>
               <div class="form-group"><label>Port</label><input id="mc-edit-port" type="number" class="form-control" value="${it.port}"/></div>
               <div class="form-row">
-                <div class="form-group col-md-6"><label>Visible</label><br><input id="mc-edit-visible" type="checkbox" ${it.visible?'checked':''}/> Visible to all users</div>
-                <div class="form-group col-md-6"><label>Enabled</label><br><input id="mc-edit-enabled" type="checkbox" ${it.enabled?'checked':''}/></div>
+                <div class="form-group col-md-4"><label>Visible</label><br><input id="mc-edit-visible" type="checkbox" ${it.visible?'checked':''}/> Visible to all users</div>
+                <div class="form-group col-md-4"><label>Enabled</label><br><input id="mc-edit-enabled" type="checkbox" ${it.enabled?'checked':''}/></div>
+                <div class="form-group col-md-4"><label>Bidirectional</label><br><input id="mc-edit-bidir" type="checkbox" ${it.mode==='bidirectional'?'checked':''}/></div>
               </div>
             </div>
             <div class="modal-footer">
@@ -264,6 +266,7 @@
       const payload = {
         name: ($('#mc-edit-name').val()||'').trim(),
         port: parseInt($('#mc-edit-port').val(), 10),
+        mode: $('#mc-edit-bidir').is(':checked') ? 'bidirectional' : 'webhook',
         visible: $('#mc-edit-visible').is(':checked'),
         enabled: $('#mc-edit-enabled').is(':checked')
       };
