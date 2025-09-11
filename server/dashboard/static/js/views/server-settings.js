@@ -18,6 +18,9 @@ function loadServerSettingsView() {
         '<a class="nav-link active" id="general-tab" data-toggle="tab" href="#general" role="tab">General</a>' +
         '</li>' +
         '<li class="nav-item">' +
+        '<a class="nav-link" id="security-tab" data-toggle="tab" href="#security" role="tab">Security</a>' +
+        '</li>' +
+        '<li class="nav-item">' +
         '<a class="nav-link" id="ai-providers-tab" data-toggle="tab" href="#ai-providers" role="tab">AI Providers</a>' +
         '</li>' +
         '</ul>' +
@@ -27,6 +30,12 @@ function loadServerSettingsView() {
         '<div class="text-center text-muted">Loading general settings...</div>' +
         '</div>' +
         '</div>' +
+        '<div class="tab-pane fade" id="security" role="tabpanel">' +
+        '<div id="security-settings-content">' +
+        '<div class="text-center text-muted">Loading security settings...</div>' +
+        '</div>' +
+        '</div>' +
+
         '<div class="tab-pane fade" id="ai-providers" role="tabpanel">' +
         '<div class="d-flex justify-content-between align-items-center mb-3">' +
         '<h5>AI Provider Configurations</h5>' +
@@ -55,6 +64,8 @@ function loadServerSettingsView() {
         var target = $(e.target).attr("href");
         if (target === '#ai-providers') {
             loadAIProviders();
+        } else if (target === '#security') {
+            loadSecuritySettings();
         } else if (target === '#general') {
             loadGeneralSettings();
         }
@@ -652,6 +663,8 @@ function updateAIMockVisibility() {
         window.dashboardApp = window.dashboardApp || {};
         window.dashboardApp.features = window.dashboardApp.features || {};
         window.dashboardApp.features.aiMockVisible = enabled;
+
+
         // If disabling and currently on ai-mock, navigate away
         if (!enabled && window.dashboardApp.currentView === 'ai-mock') {
             showDashboard();
@@ -661,4 +674,245 @@ function updateAIMockVisibility() {
     .fail(function(xhr) {
         alert('Failed to update setting: ' + (xhr.responseText || 'Unknown error'));
     });
+}
+
+
+// Security Settings Functions
+function loadSecuritySettings() {
+    $.when(
+        $.get('/api/settings/login-backoff'),
+        $.get('/api/settings/ip-rate')
+    ).done(function(lbRes, ipRes) {
+        var lb = (lbRes && lbRes[0]) || {};
+        var ip = (ipRes && ipRes[0]) || {};
+        var html = '' +
+        '<div class="row">' +
+        '  <div class="col-md-8">' +
+        '    <div class="card mb-3">' +
+        '      <div class="card-header"><h3 class="card-title">Login Backoff & Lockout</h3></div>' +
+        '      <div class="card-body">' +
+        '        <div class="form-row">' +
+        '          <div class="form-group col-md-4">' +
+        '            <label>Base Delay (ms)</label>' +
+        '            <input type="number" min="0" max="60000" class="form-control" id="lb-base" value="' + (lb.base_delay_ms || 250) + '">' +
+        '          </div>' +
+        '          <div class="form-group col-md-4">' +
+        '            <label>Max Delay (ms)</label>' +
+        '            <input type="number" min="0" max="600000" class="form-control" id="lb-max" value="' + (lb.max_delay_ms || 5000) + '">' +
+        '          </div>' +
+        '          <div class="form-group col-md-4">' +
+        '            <label>Max Exponent</label>' +
+        '            <input type="number" min="0" max="10" class="form-control" id="lb-exp" value="' + (lb.max_exponent || 4) + '">' +
+        '          </div>' +
+        '        </div>' +
+        '        <div class="form-row">' +
+        '          <div class="form-group col-md-6">' +
+        '            <label>Hard Lock Failures</label>' +
+        '            <input type="number" min="0" max="50" class="form-control" id="lb-fails" value="' + (lb.hard_lock_failures || 8) + '">' +
+        '          </div>' +
+        '          <div class="form-group col-md-6">' +
+        '            <label>Hard Lock Duration (minutes)</label>' +
+        '            <input type="number" min="0" max="1440" class="form-control" id="lb-mins" value="' + (lb.hard_lock_minutes || 10) + '">' +
+        '          </div>' +
+        '        </div>' +
+        '        <div class="form-group form-check">' +
+        '           <input type="checkbox" class="form-check-input" id="lb-perip" ' + ((lb.per_ip_enabled ? 'checked' : '')) + '>' +
+        '           <label class="form-check-label" for="lb-perip">Enable per-IP buckets (may impact users behind NAT)</label>' +
+        '        </div>' +
+        '        <button class="btn btn-primary" onclick="updateLoginBackoffSettings()"><i class="fas fa-save"></i> Save</button>' +
+        '      </div>' +
+        '    </div>' +
+        '    <div class="card mb-3">' +
+        '      <div class="card-header"><h3 class="card-title">IP-only Rate Limiter</h3></div>' +
+        '      <div class="card-body">' +
+        '        <div class="form-row">' +
+        '          <div class="form-group col-md-6">' +
+        '            <label>Max Requests per Minute (per IP)</label>' +
+        '            <input type="number" min="0" max="100000" class="form-control" id="ip-max-per-minute" value="' + (ip.max_per_minute || 120) + '">' +
+        '            <small class="form-text text-muted">0 disables the IP-only limiter</small>' +
+        '          </div>' +
+        '          <div class="form-group col-md-6">' +
+        '            <label>Ban Duration (minutes)</label>' +
+        '            <input type="number" min="0" max="10080" class="form-control" id="ip-ban-minutes" value="' + (ip.ban_minutes || 10) + '">' +
+        '          </div>' +
+        '        </div>' +
+        '        <button class="btn btn-primary" onclick="updateIPRateSettings()"><i class="fas fa-save"></i> Save</button>' +
+        '      </div>' +
+        '    </div>' +
+        '    <div class="card mb-3">' +
+        '      <div class="card-header d-flex justify-content-between align-items-center">' +
+        '        <h3 class="card-title mb-0">Recent Security Events</h3>' +
+        '        <button class="btn btn-sm btn-outline-secondary" onclick="loadSecurityEvents()"><i class="fas fa-sync"></i> Refresh</button>' +
+        '      </div>' +
+        '      <div class="card-body">' +
+        '        <div id="security-events-list" class="small text-muted">Loading...</div>' +
+        '      </div>' +
+        '    </div>' +
+        '    <div class="card">' +
+        '      <div class="card-header"><h3 class="card-title">Security Event Webhooks</h3></div>' +
+        '      <div class="card-body">' +
+        '        <div class="form-row">' +
+        '          <div class="form-group col-md-5">' +
+        '            <label>Webhook URL</label>' +
+        '            <input type="url" class="form-control" id="wh-url" placeholder="https://...">' +
+        '          </div>' +
+        '          <div class="form-group col-md-3">' +
+        '            <label>Payload Type</label>' +
+        '            <select class="form-control" id="wh-type">' +
+        '              <option value="slack">Slack (text JSON)</option>' +
+        '              <option value="json">Raw JSON</option>' +
+        '            </select>' +
+        '          </div>' +
+        '          <div class="form-group col-md-2">' +
+        '            <label>Enabled</label>' +
+        '            <div><input type="checkbox" id="wh-enabled" checked></div>' +
+        '          </div>' +
+        '          <div class="form-group col-md-2 d-flex align-items-end">' +
+        '            <button class="btn btn-primary btn-block" onclick="addSecurityWebhook()"><i class="fas fa-plus"></i> Add</button>' +
+        '          </div>' +
+        '        </div>' +
+        '        <div class="form-group">' +
+        '          <label>Description</label>' +
+        '          <input type="text" id="wh-desc" class="form-control" placeholder="Optional note">' +
+        '        </div>' +
+        '        <div id="security-webhooks-list" class="mt-3">Loading...</div>' +
+        '      </div>' +
+        '    </div>' +
+        '  </div>' +
+        '</div>';
+        $('#security-settings-content').html(html);
+        loadSecurityEvents();
+        loadSecurityWebhooks();
+    }).fail(function() {
+        $('#security-settings-content').html('<div class="alert alert-danger">Failed to load security settings</div>');
+    });
+}
+
+function updateLoginBackoffSettings() {
+  var payload = {
+    base_delay_ms: parseInt($('#lb-base').val(), 10) || 0,
+    max_delay_ms: parseInt($('#lb-max').val(), 10) || 0,
+    max_exponent: parseInt($('#lb-exp').val(), 10) || 0,
+    hard_lock_failures: parseInt($('#lb-fails').val(), 10) || 0,
+    hard_lock_minutes: parseInt($('#lb-mins').val(), 10) || 0,
+    per_ip_enabled: $('#lb-perip').is(':checked')
+  };
+  $.ajax({
+    url: '/api/settings/login-backoff',
+    method: 'PUT',
+    contentType: 'application/json',
+    data: JSON.stringify(payload)
+  })
+  .done(function(){ alert('Login backoff settings updated'); })
+  .fail(function(xhr){ alert('Failed to update settings: ' + (xhr.responseText || 'Unknown error')); });
+}
+
+function loadSecurityEvents() {
+  $.get('/api/security/events?limit=20')
+    .done(function(items){
+      if (!items || items.length === 0) {
+        $('#security-events-list').html('<div class="text-muted">No recent events</div>');
+        return;
+      }
+      var html = '<ul class="list-group list-group-flush">';
+      items.forEach(function(ev){
+        var when = new Date(ev.at).toLocaleString();
+        var sev = (ev.severity || 'info').toUpperCase();
+        html += '<li class="list-group-item p-2">' +
+          '<span class="badge badge-' + (sev === 'WARN' ? 'warning' : 'secondary') + ' mr-2">' + sev + '</span>' +
+          '<strong>' + ev.type + '</strong>: ' + escapeHtml(ev.message || '') +
+          (ev.username ? ' <span class="text-muted">user=' + escapeHtml(ev.username) + '</span>' : '') +
+          (ev.ip ? ' <span class="text-muted">ip=' + escapeHtml(ev.ip) + '</span>' : '') +
+          ' <span class="text-muted float-right">' + when + '</span>' +
+          '</li>';
+      });
+      html += '</ul>';
+      $('#security-events-list').html(html);
+    })
+    .fail(function(){
+      $('#security-events-list').html('<div class="text-danger">Failed to load events</div>');
+    });
+}
+
+function loadSecurityWebhooks() {
+  $.get('/api/security/webhooks')
+    .done(function(rows){
+      var html = '';
+      if (!rows || rows.length === 0) {
+        html = '<div class="text-muted">No webhooks configured</div>';
+      } else {
+        html = '<table class="table table-sm"><thead><tr>' +
+          '<th>URL</th><th>Type</th><th>Enabled</th><th>Description</th><th></th></tr></thead><tbody>';
+        rows.forEach(function(w){
+          html += '<tr>' +
+            '<td class="text-truncate" style="max-width:260px" title="' + escapeHtml(w.url) + '">' + escapeHtml(w.url) + '</td>' +
+            '<td>' + (w.type || '') + '</td>' +
+            '<td>' + (w.enabled ? '<span class="badge badge-success">Yes</span>' : '<span class="badge badge-secondary">No</span>') + '</td>' +
+            '<td class="text-truncate" style="max-width:200px" title="' + escapeHtml(w.description || '') + '">' + escapeHtml(w.description || '') + '</td>' +
+            '<td class="text-right">' +
+              '<button class="btn btn-sm btn-outline-secondary mr-2" onclick="toggleSecurityWebhook(' + w.id + ',' + (!w.enabled) + ')">' + (w.enabled ? 'Disable' : 'Enable') + '</button>' +
+              '<button class="btn btn-sm btn-outline-info mr-2" onclick="testSecurityWebhook(' + w.id + ')"><i class="fas fa-paper-plane"></i> Test</button>' +
+              '<button class="btn btn-sm btn-outline-danger" onclick="deleteSecurityWebhook(' + w.id + ')"><i class="fas fa-trash"></i></button>' +
+            '</td>' +
+          '</tr>';
+        });
+        html += '</tbody></table>';
+      }
+      $('#security-webhooks-list').html(html);
+    })
+    .fail(function(){
+      $('#security-webhooks-list').html('<div class="text-danger">Failed to load webhooks</div>');
+    });
+}
+
+function addSecurityWebhook() {
+  var data = {
+    url: $('#wh-url').val().trim(),
+    type: $('#wh-type').val(),
+    enabled: $('#wh-enabled').is(':checked'),
+    description: $('#wh-desc').val().trim()
+  };
+  if (!data.url || !data.type) { alert('URL and type are required'); return; }
+  $.ajax({ url: '/api/security/webhooks', method: 'POST', contentType: 'application/json', data: JSON.stringify(data) })
+    .done(function(){
+      $('#wh-url').val(''); $('#wh-desc').val(''); $('#wh-enabled').prop('checked', true); $('#wh-type').val('slack');
+      loadSecurityWebhooks();
+    })
+    .fail(function(xhr){ alert('Failed to add webhook: ' + (xhr.responseText || 'Unknown error')); });
+}
+
+function toggleSecurityWebhook(id, enabled) {
+  // Minimal update: send enabled flag; server requires type/url fields, so we send placeholders which are ignored if empty
+  $.ajax({ url: '/api/security/webhooks/' + id, method: 'PUT', contentType: 'application/json', data: JSON.stringify({ enabled: !!enabled, type: 'json', url: '', description: '' }) })
+    .done(function(){ loadSecurityWebhooks(); })
+    .fail(function(xhr){ alert('Failed to update webhook: ' + (xhr.responseText || 'Unknown error')); });
+}
+
+function deleteSecurityWebhook(id) {
+  if (!confirm('Delete this webhook?')) return;
+  $.ajax({ url: '/api/security/webhooks/' + id, method: 'DELETE' })
+    .done(function(){ loadSecurityWebhooks(); })
+    .fail(function(xhr){ alert('Failed to delete webhook: ' + (xhr.responseText || 'Unknown error')); });
+}
+
+function updateIPRateSettings() {
+  var payload = {
+    max_per_minute: parseInt($('#ip-max-per-minute').val(), 10) || 0,
+    ban_minutes: parseInt($('#ip-ban-minutes').val(), 10) || 0
+  };
+  $.ajax({
+    url: '/api/settings/ip-rate',
+    method: 'PUT',
+    contentType: 'application/json',
+    data: JSON.stringify(payload)
+  })
+  .done(function(){ alert('IP rate limiter settings updated'); })
+  .fail(function(xhr){ alert('Failed to update IP rate settings: ' + (xhr.responseText || 'Unknown error')); });
+}
+
+
+function testSecurityWebhook(id) {
+  $.ajax({ url: '/api/security/webhooks/' + id + '/test', method: 'POST' })
+    .done(function(){ alert('Test message sent'); })
+    .fail(function(xhr){ alert('Failed to send test: ' + (xhr.responseText || 'Unknown error')); });
 }

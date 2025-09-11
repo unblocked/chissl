@@ -159,6 +159,30 @@ func (d *SQLDatabase) getSQLiteMigrations() []string {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
+		// Create security webhooks table (SQLite)
+		`CREATE TABLE IF NOT EXISTS security_webhooks (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				url TEXT NOT NULL,
+				type TEXT NOT NULL,
+				enabled BOOLEAN DEFAULT 1,
+				description TEXT DEFAULT '',
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`,
+		`CREATE INDEX IF NOT EXISTS idx_security_webhooks_enabled ON security_webhooks(enabled)`,
+
+		// Create security events table (SQLite)
+		`CREATE TABLE IF NOT EXISTS security_events (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				type TEXT NOT NULL,
+				severity TEXT NOT NULL,
+				username TEXT,
+				ip TEXT,
+				message TEXT,
+				at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`,
+
 		// Create port reservations table
 		`CREATE TABLE IF NOT EXISTS port_reservations (
 			id TEXT PRIMARY KEY,
@@ -389,6 +413,30 @@ func (d *SQLDatabase) getPostgresMigrations() []string {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_multicast_tunnels_port ON multicast_tunnels(port)`,
 		`CREATE INDEX IF NOT EXISTS idx_multicast_tunnels_visible ON multicast_tunnels(visible)`,
+
+		// Create security events table (PostgreSQL)
+		`CREATE TABLE IF NOT EXISTS security_events (
+				id SERIAL PRIMARY KEY,
+				type VARCHAR(50) NOT NULL,
+				severity VARCHAR(20) NOT NULL,
+				username VARCHAR(255),
+				ip VARCHAR(255),
+				message TEXT,
+				at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)`,
+
+		// Create security webhooks table (PostgreSQL)
+		`CREATE TABLE IF NOT EXISTS security_webhooks (
+				id SERIAL PRIMARY KEY,
+				url TEXT NOT NULL,
+				type VARCHAR(50) NOT NULL,
+				enabled BOOLEAN DEFAULT TRUE,
+				description TEXT DEFAULT '',
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			)`,
+		`CREATE INDEX IF NOT EXISTS idx_security_webhooks_enabled ON security_webhooks(enabled)`,
 
 		// Add use_tls column to existing listeners table if it doesn't exist (PostgreSQL)
 		`ALTER TABLE listeners ADD COLUMN IF NOT EXISTS use_tls BOOLEAN DEFAULT TRUE`,

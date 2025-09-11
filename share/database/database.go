@@ -109,6 +109,17 @@ type Database interface {
 	GetSettingBool(key string, defaultValue bool) (bool, error)
 	SetSettingString(key string, value string) error
 
+	// Security webhooks
+	ListSecurityWebhooks(onlyEnabled bool) ([]SecurityWebhook, error)
+	GetSecurityWebhook(id int) (*SecurityWebhook, error)
+	CreateSecurityWebhook(w *SecurityWebhook) error
+	UpdateSecurityWebhook(w *SecurityWebhook) error
+	DeleteSecurityWebhook(id int) error
+
+	// Security events
+	InsertSecurityEvent(ev *SecurityEventLog) error
+	ListSecurityEvents(limit int) ([]SecurityEventLog, error)
+
 	// SSO configuration management
 	CreateSSOConfig(config *SSOConfig) error
 	GetSSOConfig(provider SSOProvider) (*SSOConfig, error)

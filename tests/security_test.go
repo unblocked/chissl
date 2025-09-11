@@ -496,3 +496,91 @@ func TestUserDeletionCleanup(t *testing.T) {
 	// Cleanup
 	db.Close()
 }
+
+// TestProtectedEndpointsRequireAuth verifies protected endpoints return 401 without auth
+func TestProtectedEndpointsRequireAuth(t *testing.T) {
+	// Setup temporary DB and server
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	dbConfig := &database.DatabaseConfig{Type: "sqlite", FilePath: dbPath}
+	db := database.NewDatabase(dbConfig)
+	if err := db.Connect(); err != nil {
+		t.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate database: %v", err)
+	}
+
+	srv, err := chserver.NewServer(&chserver.Config{Database: dbConfig})
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	h := srv.HTTPHandler()
+
+	// Endpoints that must be protected (require auth)
+	protected := []struct{ method, path string }{
+		{"GET", "/api/users"},
+		{"GET", "/api/listeners"},
+		{"GET", "/api/sessions"},
+		{"GET", "/api/system"},
+		{"GET", "/api/stats"},
+		{"GET", "/api/ai-providers"}, // admin-only
+	}
+
+	for _, ep := range protected {
+		req := httptest.NewRequest(ep.method, ep.path, nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s: expected 401 when unauthenticated, got %d (body: %s)", ep.method, ep.path, rr.Code, rr.Body.String())
+		}
+	}
+}
+
+// TestProtectedEndpointsWithBasicAuth verifies protected endpoints succeed with valid auth
+func TestProtectedEndpointsWithBasicAuth(t *testing.T) {
+	// Setup temporary DB and server
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	dbConfig := &database.DatabaseConfig{Type: "sqlite", FilePath: dbPath}
+	db := database.NewDatabase(dbConfig)
+	if err := db.Connect(); err != nil {
+		t.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate database: %v", err)
+	}
+
+	// Create admin user
+	adminUser := &database.User{Username: "admin", Password: "adminpass", IsAdmin: true}
+	if err := db.CreateUser(adminUser); err != nil {
+		t.Fatalf("Failed to create admin user: %v", err)
+	}
+
+	srv, err := chserver.NewServer(&chserver.Config{Database: dbConfig})
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	h := srv.HTTPHandler()
+
+	protected := []struct{ method, path string }{
+		{"GET", "/api/users"},
+		{"GET", "/api/listeners"},
+		{"GET", "/api/sessions"},
+		{"GET", "/api/system"},
+		{"GET", "/api/stats"},
+		{"GET", "/api/ai-providers"}, // admin-only
+	}
+
+	for _, ep := range protected {
+		req := httptest.NewRequest(ep.method, ep.path, nil)
+		req.SetBasicAuth("admin", "adminpass")
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code == http.StatusUnauthorized {
+			t.Errorf("%s %s: expected non-401 with valid auth, got 401 (body: %s)", ep.method, ep.path, rr.Body.String())
+		}
+	}
+}

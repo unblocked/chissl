@@ -204,30 +204,30 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 		if len(pathParts) >= 4 && pathParts[3] != "" {
 			// Individual provider routes: /api/ai-providers/{id} or /api/ai-providers/{id}/test
 			if len(pathParts) >= 5 && pathParts[4] == "test" {
-				s.handleTestAIProvider(w, r)
+				s.combinedAuthMiddleware(s.handleTestAIProvider)(w, r)
 			} else {
-				s.handleAIProvider(w, r)
+				s.combinedAuthMiddleware(s.handleAIProvider)(w, r)
 			}
 		} else {
 			// Collection routes: /api/ai-providers
-			s.handleAIProviders(w, r)
+			s.combinedAuthMiddleware(s.handleAIProviders)(w, r)
 		}
 		return
 	case strings.HasPrefix(path, "/api/ai-listeners"):
 		if strings.Contains(path, "/chat") {
-			s.handleAIListenerChat(w, r)
+			s.userAuthMiddleware(s.handleAIListenerChat)(w, r)
 		} else if strings.Contains(path, "/preview") {
-			s.handleAIListenerPreview(w, r)
+			s.userAuthMiddleware(s.handleAIListenerPreview)(w, r)
 		} else if strings.Contains(path, "/refine") {
-			s.handleAIListenerRefine(w, r)
+			s.userAuthMiddleware(s.handleAIListenerRefine)(w, r)
 		} else if strings.Contains(path, "/force-regenerate") {
-			s.handleForceRegenerateAIListener(w, r)
+			s.userAuthMiddleware(s.handleForceRegenerateAIListener)(w, r)
 		} else if strings.Contains(path, "/debug") {
-			s.handleAIListenerDebug(w, r)
+			s.userAuthMiddleware(s.handleAIListenerDebug)(w, r)
 		} else if strings.Contains(path, "/versions") || strings.Contains(path, "/activate") {
-			s.handleAIListenerVersions(w, r)
+			s.userAuthMiddleware(s.handleAIListenerVersions)(w, r)
 		} else {
-			s.handleAIListeners(w, r)
+			s.userAuthMiddleware(s.handleAIListeners)(w, r)
 		}
 		return
 	case strings.HasPrefix(path, "/api/listener/"):
@@ -362,6 +362,55 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		return
+	case strings.HasPrefix(path, "/api/settings/login-backoff"):
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleGetLoginBackoffSettings)(w, r)
+			return
+		case http.MethodPut, http.MethodPost:
+			s.combinedAuthMiddleware(s.handleUpdateLoginBackoffSettings)(w, r)
+			return
+		}
+		return
+	case strings.HasPrefix(path, "/api/settings/ip-rate"):
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleGetIPRateSettings)(w, r)
+			return
+		case http.MethodPut, http.MethodPost:
+			s.combinedAuthMiddleware(s.handleUpdateIPRateSettings)(w, r)
+			return
+		}
+		return
+
+	case strings.HasPrefix(path, "/api/security/events"):
+		if r.Method == http.MethodGet {
+			s.combinedAuthMiddleware(s.handleGetSecurityEvents)(w, r)
+			return
+		}
+		return
+	case strings.HasPrefix(path, "/api/security/webhooks"):
+		// Special: test endpoint
+		if strings.HasSuffix(path, "/test") && r.Method == http.MethodPost {
+			s.combinedAuthMiddleware(s.handleTestSecurityWebhook)(w, r)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleListSecurityWebhooks)(w, r)
+			return
+		case http.MethodPost:
+			s.combinedAuthMiddleware(s.handleCreateSecurityWebhook)(w, r)
+			return
+		case http.MethodPut:
+			s.combinedAuthMiddleware(s.handleUpdateSecurityWebhook)(w, r)
+			return
+		case http.MethodDelete:
+			s.combinedAuthMiddleware(s.handleDeleteSecurityWebhook)(w, r)
+			return
+		}
+		return
+
 	case strings.HasPrefix(path, "/api/logs"):
 		if strings.HasPrefix(path, "/api/logs/files/") {
 			if strings.HasSuffix(path, "/download") {

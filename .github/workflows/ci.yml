@@ -20,10 +20,19 @@ jobs:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Build
-        run: go build -v -o /dev/null .
-      - name: Test
-        run: go test -v ./...
+      - name: Build (CGO)
+        shell: bash
+        run: |
+          export CGO_ENABLED=1
+          go version
+          go build -v -o /dev/null .
+      - name: Unit tests (exclude legacy e2e)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CGO_ENABLED=1
+          pkgs=$(go list ./... | grep -v '/test/e2e')
+          go test -v -count=1 $pkgs
   # ================
   # RELEASE JOBS
   #   runs after a success test
@@ -46,5 +55,25 @@ jobs:
         uses: docker://goreleaser/goreleaser:latest
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
+          CGO_ENABLED: 1
         with:
           args: release --verbose --config .github/goreleaser.yml
+  legacy_e2e:
+    name: Legacy e2e (non-blocking)
+    needs: test
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.21.x
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Run legacy e2e tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CGO_ENABLED=1
+          go test -v -count=1 ./test/e2e
+

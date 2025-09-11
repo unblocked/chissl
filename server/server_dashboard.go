@@ -1,11 +1,13 @@
 package chserver
 
 import (
+	"fmt"
 	"html/template"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // handleDashboard serves the AdminLTE dashboard
@@ -3291,6 +3293,10 @@ $(document).ready(function() {
     const error = urlParams.get('error');
     if (error === 'invalid_credentials') {
         $('#error-message').text('Invalid username or password').show();
+    } else if (error === 'rate_limited') {
+        var retry = parseInt(urlParams.get('retry') || '0', 10);
+        var msg = retry > 0 ? ('Too many login attempts. Try again in ' + retry + 's.') : 'Too many login attempts. Please try again later.';
+        $('#error-message').text(msg).show();
     }
 
     // Load SSO login options
@@ -3365,6 +3371,31 @@ func (s *Server) handleDashboardLogin(w http.ResponseWriter, r *http.Request) {
 
 	s.Debugf("Login attempt: username=%s", username)
 
+	// Global IP-only rate limiter first
+	ip := s.clientIP(r)
+	if locked, retry := s.ipRateCheck(ip); locked {
+		if retry > 0 {
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retry.Seconds())))
+		}
+		http.Redirect(w, r, "/dashboard?error=rate_limited&retry="+fmt.Sprintf("%d", int(retry.Seconds())), http.StatusSeeOther)
+		return
+	}
+	// Apply per-username backoff (optionally bucketed per-IP)
+	if username != "" {
+		locked, retryAfter, delay := s.nextLoginDelayFor(username, ip)
+		if locked {
+			if retryAfter > 0 {
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retryAfter.Seconds())))
+			}
+			// Redirect back to login with a friendly message instead of raw 429
+			http.Redirect(w, r, "/dashboard?error=rate_limited&retry="+fmt.Sprintf("%d", int(retryAfter.Seconds())), http.StatusSeeOther)
+			return
+		}
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+	}
+
 	// Validate credentials - check both database and in-memory users
 	authenticated := false
 
@@ -3385,6 +3416,11 @@ func (s *Server) handleDashboardLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if authenticated {
+		// reset backoff state on success
+		ip := s.clientIP(r)
+		s.resetLoginBackoffFor(username, ip)
+		// record IP attempt
+		s.ipRateRecord(ip)
 		s.Debugf("Setting session cookie for user: %s", username)
 		// Set session cookie (simplified)
 		http.SetCookie(w, &http.Cookie{
@@ -3397,6 +3433,14 @@ func (s *Server) handleDashboardLogin(w http.ResponseWriter, r *http.Request) {
 		})
 		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 		return
+	}
+
+	// record failure for backoff
+	if username != "" {
+		ip := s.clientIP(r)
+		s.recordLoginFailureFor(username, ip)
+		// record IP attempt
+		s.ipRateRecord(ip)
 	}
 
 	s.Debugf("Authentication failed for user: %s", username)

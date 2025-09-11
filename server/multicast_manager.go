@@ -158,6 +158,8 @@ func (m *MulticastManager) StopMulticast(id string) error {
 	}
 	active.Cancel()
 	_ = active.Server.Close()
+	// Ensure DB reflects disabled + closed to avoid re-enabling via stale in-memory copy
+	active.Config.Enabled = false
 	active.Config.Status = "closed"
 	if m.db != nil {
 		_ = m.db.UpdateMulticastTunnel(active.Config)

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/NextChapterSoftware/chissl/share/auth"
 	"github.com/NextChapterSoftware/chissl/share/database"
@@ -151,36 +152,57 @@ func (s *Server) userAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				http.Error(w, "Invalid basic auth format", http.StatusUnauthorized)
 				return
 			}
-
+			// Global IP-only rate limit
+			if locked, retry := s.ipRateCheck(s.clientIP(r)); locked {
+				if retry > 0 {
+					w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retry.Seconds())))
+				}
+				http.Error(w, "Too many requests. Please try again later.", http.StatusTooManyRequests)
+				return
+			}
+			// Apply per-username/per-IP backoff for basic auth
+			if username != "" {
+				ip := s.clientIP(r)
+				locked, retryAfter, delay := s.nextLoginDelayFor(username, ip)
+				if locked {
+					if retryAfter > 0 {
+						w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retryAfter.Seconds())))
+					}
+					http.Error(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
+					return
+				}
+				if delay > 0 {
+					time.Sleep(delay)
+				}
+			}
 			var user *settings.User
 			var found bool
-
 			// Check in-memory users first
 			user, found = s.users.Get(username)
 			if found && (username != user.Name || password != user.Pass) {
 				found = false
 			}
-
 			// If not found in memory and database is available, check database
 			if !found && s.db != nil {
 				dbUser, err := s.db.GetUser(username)
 				if err == nil && dbUser.Password == password {
-					// Convert database user to settings user for compatibility
-					user = &settings.User{
-						Name:    dbUser.Username,
-						Pass:    dbUser.Password,
-						IsAdmin: dbUser.IsAdmin,
-					}
+					user = &settings.User{Name: dbUser.Username, Pass: dbUser.Password, IsAdmin: dbUser.IsAdmin}
 					found = true
 				}
 			}
-
 			if !found {
+				if username != "" {
+					s.recordLoginFailureFor(username, s.clientIP(r))
+				}
+				// record IP attempt
+				s.ipRateRecord(s.clientIP(r))
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-
-			// Basic authentication successful (any user, not just admin)
+			// success: reset backoff and continue
+			s.resetLoginBackoffFor(username, s.clientIP(r))
+			// record IP attempt
+			s.ipRateRecord(s.clientIP(r))
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, "username", username)
 			ctx = context.WithValue(ctx, "user", user)
@@ -312,36 +334,57 @@ func (s *Server) combinedAuthMiddleware(next http.HandlerFunc) http.HandlerFunc 
 				http.Error(w, "Invalid basic auth format", http.StatusUnauthorized)
 				return
 			}
-
+			// Global IP-only rate limit
+			if locked, retry := s.ipRateCheck(s.clientIP(r)); locked {
+				if retry > 0 {
+					w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retry.Seconds())))
+				}
+				http.Error(w, "Too many requests. Please try again later.", http.StatusTooManyRequests)
+				return
+			}
+			// Apply per-username/per-IP backoff for basic auth
+			if username != "" {
+				ip := s.clientIP(r)
+				locked, retryAfter, delay := s.nextLoginDelayFor(username, ip)
+				if locked {
+					if retryAfter > 0 {
+						w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retryAfter.Seconds())))
+					}
+					http.Error(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
+					return
+				}
+				if delay > 0 {
+					time.Sleep(delay)
+				}
+			}
 			var user *settings.User
 			var found bool
-
 			// Check in-memory users first
 			user, found = s.users.Get(username)
 			if found && (username != user.Name || password != user.Pass) {
 				found = false
 			}
-
 			// If not found in memory and database is available, check database
 			if !found && s.db != nil {
 				dbUser, err := s.db.GetUser(username)
 				if err == nil && dbUser.Password == password {
-					// Convert database user to settings user for compatibility
-					user = &settings.User{
-						Name:    dbUser.Username,
-						Pass:    dbUser.Password,
-						IsAdmin: dbUser.IsAdmin,
-					}
+					user = &settings.User{Name: dbUser.Username, Pass: dbUser.Password, IsAdmin: dbUser.IsAdmin}
 					found = true
 				}
 			}
-
 			if !found || !user.IsAdmin {
+				if username != "" {
+					s.recordLoginFailureFor(username, s.clientIP(r))
+				}
+				// record IP attempt
+				s.ipRateRecord(s.clientIP(r))
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-
-			// Basic authentication successful
+			// success: reset backoff and continue
+			s.resetLoginBackoffFor(username, s.clientIP(r))
+			// record IP attempt
+			s.ipRateRecord(s.clientIP(r))
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, "username", username)
 			ctx = context.WithValue(ctx, "user", user)
@@ -1036,4 +1079,9 @@ func (s *Server) BasicAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // HandleDeleteUser is an exported version of handleDeleteUser for testing
 func (s *Server) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	s.handleDeleteUser(w, r)
+}
+
+// HTTPHandler exposes the main HTTP handler for testing
+func (s *Server) HTTPHandler() http.Handler {
+	return http.HandlerFunc(s.handleClientHandler)
 }
