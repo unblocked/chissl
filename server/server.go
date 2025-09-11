@@ -457,6 +457,27 @@ func (s *Server) Close() error {
 	return s.httpServer.Close()
 }
 
+// Shutdown gracefully closes the HTTP server, database, and log manager
+func (s *Server) Shutdown() error {
+	var firstErr error
+	if s.httpServer != nil {
+		if err := s.httpServer.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if s.db != nil {
+		if err := s.db.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if s.logManager != nil {
+		if err := s.logManager.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // GetFingerprint is used to access the server fingerprint
 func (s *Server) GetFingerprint() string {
 	return s.fingerprint

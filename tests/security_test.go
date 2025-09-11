@@ -396,6 +396,7 @@ func TestUserDeletionCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
+	defer srv.Shutdown()
 
 	// Create test user
 	user := &database.User{
@@ -516,6 +517,7 @@ func TestProtectedEndpointsRequireAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
+	defer srv.Shutdown()
 	h := srv.HTTPHandler()
 
 	// Endpoints that must be protected (require auth)
@@ -563,6 +565,7 @@ func TestProtectedEndpointsWithBasicAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
+	defer srv.Shutdown()
 	h := srv.HTTPHandler()
 
 	protected := []struct{ method, path string }{
