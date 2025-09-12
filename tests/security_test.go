@@ -40,6 +40,7 @@ func TestAdminMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
+	defer srv.Shutdown()
 
 	// Create test users
 	adminUser := &database.User{
@@ -148,6 +149,7 @@ func TestUserAuthMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
+	defer srv.Shutdown()
 
 	// Create test user
 	user := &database.User{
@@ -294,6 +296,7 @@ func TestAPITokenAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
+	defer srv.Shutdown()
 
 	// Create test user
 	user := &database.User{

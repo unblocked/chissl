@@ -33,6 +33,12 @@ jobs:
           export CGO_ENABLED=1
           pkgs=$(go list ./... | grep -v '/test/e2e')
           go test -v -count=1 $pkgs
+      - name: Security tests (explicit)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CGO_ENABLED=1
+          go test -v -count=1 ./tests
   # ================
   # RELEASE JOBS
   #   runs after a success test

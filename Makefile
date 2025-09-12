@@ -57,9 +57,9 @@ lint: ## Lint the files
 	@go vet ${GOFILESNOTEST}
 
 test: ## Run unit tests
-	@go test ./... -coverprofile=${DIR}/coverage.out -race -short ${GOFILESNOTEST}
+	@go test ./... -coverprofile=${DIR}/coverage.out -race -short
 	@go tool cover -html=${DIR}/coverage.out -o ${DIR}/coverage.html
-	#@gocover-cobertura < ${DIR}/coverage.out > ${DIR}/coverage.xml
+	$(MAKE) security-tests
 
 security-tests: ## Run security tests to verify API authorization and authentication
 	@echo "Running security tests..."
