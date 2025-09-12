@@ -107,9 +107,43 @@ func (s *Server) handleUpdateIPRateSettings(w http.ResponseWriter, r *http.Reque
 	if s.db != nil {
 		_ = s.db.SetSettingString("security_ip_max_per_min", fmt.Sprintf("%d", req.MaxPerMinute))
 		_ = s.db.SetSettingString("security_ip_ban_minutes", fmt.Sprintf("%d", req.BanMinutes))
+
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "ip_rate": req})
+
+}
+
+// GET /api/settings/session
+func (s *Server) handleGetSessionSettings(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]int{"session_ttl_minutes": s.config.Security.SessionTTLMinutes}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// PUT /api/settings/session {session_ttl_minutes:int}
+func (s *Server) handleUpdateSessionSettings(w http.ResponseWriter, r *http.Request) {
+	if !s.isUserAdmin(r.Context()) {
+		http.Error(w, "Admin privileges required", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		SessionTTLMinutes int `json:"session_ttl_minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.SessionTTLMinutes <= 0 || req.SessionTTLMinutes > 10080 { // up to 7 days
+		http.Error(w, "session_ttl_minutes must be between 1 and 10080", http.StatusBadRequest)
+		return
+	}
+	s.config.Security.SessionTTLMinutes = req.SessionTTLMinutes
+	if s.db != nil {
+		_ = s.db.SetSettingString("security_session_ttl_minutes", fmt.Sprintf("%d", req.SessionTTLMinutes))
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "session_ttl_minutes": req.SessionTTLMinutes})
 
 }
 

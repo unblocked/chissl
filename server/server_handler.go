@@ -383,6 +383,17 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 
+	case strings.HasPrefix(path, "/api/settings/session"):
+		switch r.Method {
+		case http.MethodGet:
+			s.combinedAuthMiddleware(s.handleGetSessionSettings)(w, r)
+			return
+		case http.MethodPut, http.MethodPost:
+			s.combinedAuthMiddleware(s.handleUpdateSessionSettings)(w, r)
+			return
+		}
+		return
+
 	case strings.HasPrefix(path, "/api/security/events"):
 		if r.Method == http.MethodGet {
 			s.combinedAuthMiddleware(s.handleGetSecurityEvents)(w, r)

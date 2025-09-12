@@ -681,10 +681,12 @@ function updateAIMockVisibility() {
 function loadSecuritySettings() {
     $.when(
         $.get('/api/settings/login-backoff'),
-        $.get('/api/settings/ip-rate')
-    ).done(function(lbRes, ipRes) {
+        $.get('/api/settings/ip-rate'),
+        $.get('/api/settings/session')
+    ).done(function(lbRes, ipRes, sessRes) {
         var lb = (lbRes && lbRes[0]) || {};
         var ip = (ipRes && ipRes[0]) || {};
+        var sess = (sessRes && sessRes[0]) || {};
         var html = '' +
         '<div class="row">' +
         '  <div class="col-md-8">' +
@@ -737,6 +739,19 @@ function loadSecuritySettings() {
         '          </div>' +
         '        </div>' +
         '        <button class="btn btn-primary" onclick="updateIPRateSettings()"><i class="fas fa-save"></i> Save</button>' +
+        '      </div>' +
+        '    </div>' +
+        '    <div class="card mb-3">' +
+        '      <div class="card-header"><h3 class="card-title">Dashboard Session</h3></div>' +
+        '      <div class="card-body">' +
+        '        <div class="form-row">' +
+        '          <div class="form-group col-md-6">' +
+        '            <label>Session TTL (minutes)</label>' +
+        '            <input type="number" min="1" max="10080" class="form-control" id="session-ttl" value="' + (sess.session_ttl_minutes || 1440) + '">' +
+        '            <small class="form-text text-muted">Default 1440 (24 hours)</small>' +
+        '          </div>' +
+        '        </div>' +
+        '        <button class="btn btn-primary" onclick="updateSessionSettings()"><i class="fas fa-save"></i> Save</button>' +
         '      </div>' +
         '    </div>' +
         '    <div class="card mb-3">' +
@@ -893,6 +908,20 @@ function deleteSecurityWebhook(id) {
   $.ajax({ url: '/api/security/webhooks/' + id, method: 'DELETE' })
     .done(function(){ loadSecurityWebhooks(); })
     .fail(function(xhr){ alert('Failed to delete webhook: ' + (xhr.responseText || 'Unknown error')); });
+}
+
+
+function updateSessionSettings() {
+  var ttl = parseInt($('#session-ttl').val(), 10) || 0;
+  if (ttl < 1 || ttl > 10080) { alert('TTL must be between 1 and 10080 minutes'); return; }
+  $.ajax({
+    url: '/api/settings/session',
+    method: 'PUT',
+    contentType: 'application/json',
+    data: JSON.stringify({ session_ttl_minutes: ttl })
+  })
+  .done(function(){ alert('Session TTL updated'); })
+  .fail(function(xhr){ alert('Failed to update session TTL: ' + (xhr.responseText || 'Unknown error')); });
 }
 
 function updateIPRateSettings() {

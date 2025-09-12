@@ -73,3 +73,26 @@ clean:
 	rm -rf ${DIRBASE}/*
 
 .PHONY: all freebsd linux windows docker dep lint test security-tests linux-on-darwin-with-cgo-with-tests release clean
+
+# --- Docs helpers -----------------------------------------------------------
+.PHONY: docs-serve docs-build
+
+# Serve docs locally on http://127.0.0.1:8001
+# Prefer MkDocs if installed and mkdocs.yml exists; otherwise, serve static docs/
+docs-serve:
+	@if command -v mkdocs >/dev/null 2>&1 && [ -f mkdocs.yml ]; then \
+		echo "[docs] Serving with MkDocs on http://127.0.0.1:8001"; \
+		mkdocs serve -a 127.0.0.1:8001 || (echo "[docs] MkDocs failed to serve. Falling back to static server" && python3 -m http.server -d docs 8001); \
+	else \
+		echo "[docs] MkDocs not found. Serving static docs/ via Python http.server on http://127.0.0.1:8001"; \
+		python3 -m http.server -d docs 8001; \
+	fi
+
+# Build static site using MkDocs (outputs to site/) if available; otherwise no-op
+docs-build:
+	@if command -v mkdocs >/dev/null 2>&1 && [ -f mkdocs.yml ]; then \
+		echo "[docs] Building MkDocs site into ./site"; \
+		mkdocs build -d site; \
+	else \
+		echo "[docs] MkDocs not installed; skipping build. (Install: pip install mkdocs mkdocs-material)"; \
+	fi

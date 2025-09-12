@@ -25,3 +25,4 @@ go.work
 tests/logs
 logs
 openapi_token
+site/

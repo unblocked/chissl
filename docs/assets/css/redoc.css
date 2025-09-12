@@ -1,0 +1,13 @@
+/* Make Redoc take the full viewport width, even inside the centered content grid */
+#redoc-container {
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  width: 100vw;
+  padding-bottom: 2rem;
+}
+
+/* Optional: allow the Redoc internal wrapper to stretch */
+.redoc-wrap {
+  max-width: 100% !important;
+}
+

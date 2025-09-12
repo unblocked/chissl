@@ -75,8 +75,9 @@ type IPRateLimitConfig struct {
 
 // SecurityConfig groups security-related settings
 type SecurityConfig struct {
-	LoginBackoff LoginBackoffConfig `json:"login_backoff"`
-	IPRate       IPRateLimitConfig  `json:"ip_rate"`
+	LoginBackoff      LoginBackoffConfig `json:"login_backoff"`
+	IPRate            IPRateLimitConfig  `json:"ip_rate"`
+	SessionTTLMinutes int                `json:"session_ttl_minutes"`
 }
 
 // Server respresent a chisel service
@@ -187,6 +188,10 @@ func NewServer(c *Config) (*Server, error) {
 	if ip.BanMinutes == 0 {
 		ip.BanMinutes = 10
 	}
+	// default dashboard session TTL
+	if server.config.Security.SessionTTLMinutes <= 0 {
+		server.config.Security.SessionTTLMinutes = 24 * 60
+	}
 
 	// Load persisted security settings if present
 	if server.db != nil {
@@ -211,6 +216,10 @@ func NewServer(c *Config) (*Server, error) {
 		if v, err := server.db.GetSettingInt("security_ip_max_per_min", 0); err == nil && v > 0 {
 			server.config.Security.IPRate.MaxPerMinute = v
 		}
+		if v, err := server.db.GetSettingInt("security_session_ttl_minutes", 0); err == nil && v > 0 {
+			server.config.Security.SessionTTLMinutes = v
+		}
+
 		if v, err := server.db.GetSettingInt("security_ip_ban_minutes", 0); err == nil && v > 0 {
 			server.config.Security.IPRate.BanMinutes = v
 		}

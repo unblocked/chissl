@@ -3422,6 +3422,12 @@ func (s *Server) handleDashboardLogin(w http.ResponseWriter, r *http.Request) {
 		// record IP attempt
 		s.ipRateRecord(ip)
 		s.Debugf("Setting session cookie for user: %s", username)
+		// Compute session TTL (minutes -> seconds), default to 24h if unset/invalid
+		ttlMin := s.config.Security.SessionTTLMinutes
+		if ttlMin <= 0 {
+			ttlMin = 24 * 60
+		}
+		ttlSec := ttlMin * 60
 		// Set session cookie (simplified)
 		http.SetCookie(w, &http.Cookie{
 			Name:     "chissl_session",
@@ -3429,7 +3435,7 @@ func (s *Server) handleDashboardLogin(w http.ResponseWriter, r *http.Request) {
 			Path:     "/",
 			HttpOnly: true,
 			Secure:   false, // Set to true in production with HTTPS
-			MaxAge:   3600,  // 1 hour
+			MaxAge:   ttlSec,
 		})
 		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 		return
