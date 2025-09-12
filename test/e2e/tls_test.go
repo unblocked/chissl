@@ -21,10 +21,12 @@ func TestMTLS(t *testing.T) {
 	//setup server, client, fileserver
 	teardown := simpleSetup(t,
 		&chserver.Config{
-			TLS: *tlsConfig.serverTLS,
+			Auth: "admin:admin",
+			TLS:  *tlsConfig.serverTLS,
 		},
 		&chclient.Config{
 			Remotes: []string{tmpPort + ":127.0.0.1->$FILEPORT"},
+			Auth:    "admin:admin",
 			TLS:     *tlsConfig.clientTLS,
 			Server:  "https://localhost:" + tmpPort,
 		})
@@ -53,10 +55,12 @@ func TestTLSMissingClientCert(t *testing.T) {
 	//setup server, client, fileserver
 	teardown := simpleSetup(t,
 		&chserver.Config{
-			TLS: *tlsConfig.serverTLS,
+			Auth: "admin:admin",
+			TLS:  *tlsConfig.serverTLS,
 		},
 		&chclient.Config{
 			Remotes: []string{tmpPort + ":127.0.0.1->$FILEPORT"},
+			Auth:    "admin:admin",
 			TLS:     *tlsConfig.clientTLS,
 			Server:  "https://localhost:" + tmpPort,
 		})
@@ -83,10 +87,12 @@ func TestTLSMissingClientCA(t *testing.T) {
 	//setup server, client, fileserver
 	teardown := simpleSetup(t,
 		&chserver.Config{
-			TLS: *tlsConfig.serverTLS,
+			Auth: "admin:admin",
+			TLS:  *tlsConfig.serverTLS,
 		},
 		&chclient.Config{
 			Remotes: []string{tmpPort + ":127.0.0.1->$FILEPORT"},
+			Auth:    "admin:admin",
 			TLS:     *tlsConfig.clientTLS,
 			Server:  "https://localhost:" + tmpPort,
 		})

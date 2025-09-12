@@ -588,5 +588,271 @@ func TestProtectedEndpointsWithBasicAuth(t *testing.T) {
 		if rr.Code == http.StatusUnauthorized {
 			t.Errorf("%s %s: expected non-401 with valid auth, got 401 (body: %s)", ep.method, ep.path, rr.Body.String())
 		}
+
+	}
+}
+
+// TestAdminAPIsDeniedToRegularUser ensures admin-only APIs are not accessible to regular users
+func TestAdminAPIsDeniedToRegularUser(t *testing.T) {
+	// Setup temporary DB and server
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	dbConfig := &database.DatabaseConfig{Type: "sqlite", FilePath: dbPath}
+	db := database.NewDatabase(dbConfig)
+	if err := db.Connect(); err != nil {
+		t.Fatalf("Failed to connect to database: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate database: %v", err)
+	}
+	defer db.Close()
+
+	// Create users: one admin and one regular user
+	adminUser := &database.User{Username: "admin", Password: "adminpass", IsAdmin: true}
+	if err := db.CreateUser(adminUser); err != nil {
+		t.Fatalf("Failed to create admin user: %v", err)
+	}
+	regularUser := &database.User{Username: "user", Password: "userpass", IsAdmin: false}
+	if err := db.CreateUser(regularUser); err != nil {
+		t.Fatalf("Failed to create regular user: %v", err)
+	}
+
+	srv, err := chserver.NewServer(&chserver.Config{Database: dbConfig})
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	defer srv.Shutdown()
+	h := srv.HTTPHandler()
+
+	adminOnly := []struct{ method, path string }{
+		{"GET", "/api/users"},
+		{"GET", "/api/connections"},
+		{"GET", "/api/sessions"},
+		{"GET", "/api/logs"},
+		{"GET", "/api/port-reservations"},
+		{"GET", "/api/settings/login-backoff"},
+	}
+
+	for _, ep := range adminOnly {
+		req := httptest.NewRequest(ep.method, ep.path, nil)
+		req.SetBasicAuth("user", "userpass") // regular user
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if !(rr.Code == http.StatusUnauthorized || rr.Code == http.StatusForbidden) {
+			t.Errorf("%s %s: expected 401/403 for regular user, got %d (body: %s)", ep.method, ep.path, rr.Code, rr.Body.String())
+		}
+	}
+}
+
+// TestAdminAPIsAllowedForAdminUser ensures admin-only APIs are accessible to an admin user
+func TestAdminAPIsAllowedForAdminUser(t *testing.T) {
+	// Setup temporary DB and server
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	dbConfig := &database.DatabaseConfig{Type: "sqlite", FilePath: dbPath}
+	db := database.NewDatabase(dbConfig)
+	if err := db.Connect(); err != nil {
+		t.Fatalf("Failed to connect to database: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate database: %v", err)
+	}
+	defer db.Close()
+
+	// Create admin user
+	adminUser := &database.User{Username: "admin", Password: "adminpass", IsAdmin: true}
+	if err := db.CreateUser(adminUser); err != nil {
+		t.Fatalf("Failed to create admin user: %v", err)
+	}
+
+	srv, err := chserver.NewServer(&chserver.Config{Database: dbConfig})
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	defer srv.Shutdown()
+	h := srv.HTTPHandler()
+
+	adminOnly := []struct{ method, path string }{
+		{"GET", "/api/users"},
+		{"GET", "/api/connections"},
+		{"GET", "/api/sessions"},
+		{"GET", "/api/logs"},
+		{"GET", "/api/port-reservations"},
+		{"GET", "/api/settings/login-backoff"},
+	}
+
+	for _, ep := range adminOnly {
+		req := httptest.NewRequest(ep.method, ep.path, nil)
+		req.SetBasicAuth("admin", "adminpass")
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code == http.StatusUnauthorized || rr.Code == http.StatusForbidden {
+			t.Errorf("%s %s: expected success for admin, got %d (body: %s)", ep.method, ep.path, rr.Code, rr.Body.String())
+		}
+	}
+}
+
+// TestAdminWriteAPIsAllowedForAdmin verifies admin can perform POST/PUT/DELETE on admin APIs
+func TestAdminWriteAPIsAllowedForAdmin(t *testing.T) {
+	// Setup temporary DB and server
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	dbConfig := &database.DatabaseConfig{Type: "sqlite", FilePath: dbPath}
+	db := database.NewDatabase(dbConfig)
+	if err := db.Connect(); err != nil {
+		t.Fatalf("DB connect: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("DB migrate: %v", err)
+	}
+	defer db.Close()
+
+	// Create admin user
+	if err := db.CreateUser(&database.User{Username: "admin", Password: "adminpass", IsAdmin: true}); err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+
+	srv, err := chserver.NewServer(&chserver.Config{Database: dbConfig})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	defer srv.Shutdown()
+	h := srv.HTTPHandler()
+
+	// 1) Admin creates a new user via API
+	createUserBody := map[string]any{"username": "user2", "password": "pass2", "is_admin": false}
+	b1, _ := json.Marshal(createUserBody)
+	req := httptest.NewRequest("POST", "/api/users", bytes.NewBuffer(b1))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth("admin", "adminpass")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create user: expected 201, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// 2) Admin creates a port reservation for that user
+	resBody := map[string]any{"username": "user2", "start_port": 8000, "end_port": 8001, "description": "test"}
+	b2, _ := json.Marshal(resBody)
+	req = httptest.NewRequest("POST", "/api/port-reservations", bytes.NewBuffer(b2))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth("admin", "adminpass")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create reservation: expected 201, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	var createdRes struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &createdRes)
+	if createdRes.ID == "" {
+		t.Fatalf("create reservation: missing id in response")
+	}
+
+	// 3) Admin can delete that reservation
+	req = httptest.NewRequest("DELETE", "/api/port-reservations/"+createdRes.ID, nil)
+	req.SetBasicAuth("admin", "adminpass")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete reservation: expected 204, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// 4) Admin can update user via API (promote to admin)
+	updateBody := map[string]any{"username": "user2", "is_admin": true}
+	b3, _ := json.Marshal(updateBody)
+	req = httptest.NewRequest("PUT", "/api/users", bytes.NewBuffer(b3))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth("admin", "adminpass")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK && rr.Code != http.StatusAccepted {
+		t.Fatalf("update user: expected 200/202, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// 5) Admin can set reserved ports threshold
+	thrBody := map[string]any{"threshold": 12000}
+	b4, _ := json.Marshal(thrBody)
+	req = httptest.NewRequest("POST", "/api/settings/reserved-ports-threshold", bytes.NewBuffer(b4))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth("admin", "adminpass")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("set threshold: expected 200, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// 6) Admin can delete user via legacy route
+	req = httptest.NewRequest("DELETE", "/user/user2", nil)
+	req.SetBasicAuth("admin", "adminpass")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("delete user: expected 202, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// TestAdminWriteAPIsDeniedToRegular ensures regular users cannot hit admin write endpoints
+func TestAdminWriteAPIsDeniedToRegular(t *testing.T) {
+	// Setup temporary DB and server
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	dbConfig := &database.DatabaseConfig{Type: "sqlite", FilePath: dbPath}
+	db := database.NewDatabase(dbConfig)
+	if err := db.Connect(); err != nil {
+		t.Fatalf("DB connect: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("DB migrate: %v", err)
+	}
+	defer db.Close()
+
+	// Create admin and regular users
+	_ = db.CreateUser(&database.User{Username: "admin", Password: "adminpass", IsAdmin: true})
+	_ = db.CreateUser(&database.User{Username: "user", Password: "userpass", IsAdmin: false})
+
+	srv, err := chserver.NewServer(&chserver.Config{Database: dbConfig})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	defer srv.Shutdown()
+	h := srv.HTTPHandler()
+
+	denyCases := []struct {
+		method, path string
+		body         any
+	}{
+		{"POST", "/api/users", map[string]any{"username": "x", "password": "y"}},
+		{"PUT", "/api/users", map[string]any{"username": "user", "is_admin": true}},
+		{"POST", "/api/port-reservations", map[string]any{"username": "user", "start_port": 8000, "end_port": 8001}},
+		{"POST", "/api/settings/reserved-ports-threshold", map[string]any{"threshold": 12000}},
+	}
+
+	for _, tc := range denyCases {
+		var buf *bytes.Buffer
+		if tc.body != nil {
+			b, _ := json.Marshal(tc.body)
+			buf = bytes.NewBuffer(b)
+		} else {
+			buf = bytes.NewBuffer(nil)
+		}
+		req := httptest.NewRequest(tc.method, tc.path, buf)
+		req.Header.Set("Content-Type", "application/json")
+		req.SetBasicAuth("user", "userpass")
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if !(rr.Code == http.StatusUnauthorized || rr.Code == http.StatusForbidden) {
+			t.Errorf("%s %s: expected 401/403 for regular, got %d (body: %s)", tc.method, tc.path, rr.Code, rr.Body.String())
+		}
+	}
+
+	// Legacy delete should also be denied to regular user
+	req := httptest.NewRequest("DELETE", "/user/user", nil)
+	req.SetBasicAuth("user", "userpass")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if !(rr.Code == http.StatusUnauthorized || rr.Code == http.StatusForbidden) {
+		t.Errorf("DELETE /user/user: expected 401/403 for regular, got %d (body: %s)", rr.Code, rr.Body.String())
 	}
 }
