@@ -22,3 +22,7 @@ go.work
 /build/
 .DS_Store
 .idea
+tests/logs
+logs
+openapi_token
+site/

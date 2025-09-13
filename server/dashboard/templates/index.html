@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>chiSSL Dashboard</title>
+
+    <!-- AdminLTE CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Bootstrap -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+
+    <style>
+        .content-wrapper { margin-left: 0 !important; }
+        .main-sidebar { position: fixed !important; }
+        .brand-link { border-bottom: 1px solid #4f5962 !important; }
+        .nav-sidebar .nav-link.active { background-color: #007bff !important; color: white !important; }
+        .small-box { border-radius: 10px; }
+        .small-box .icon { top: -10px; right: 10px; }
+        .card { box-shadow: 0 0 1px rgba(0,0,0,.125), 0 1px 3px rgba(0,0,0,.2); }
+        .btn-group-sm > .btn, .btn-sm { padding: .25rem .5rem; font-size: .875rem; }
+        .table-responsive { border-radius: 0.25rem; }
+        .badge { font-size: 0.75em; }
+        .modal-lg { max-width: 900px; }
+        .toast { min-width: 250px; }
+        .log-entry { font-family: 'Courier New', monospace; font-size: 0.85em; }
+        .traffic-payload { font-family: 'Courier New', monospace; font-size: 0.8em; max-height: 400px; overflow-y: auto; }
+        .json-key { color: #0451a5; }
+        .json-string { color: #0a3069; }
+        .json-number { color: #098658; }
+        .json-boolean { color: #0969da; }
+        .json-null { color: #8250df; }
+        .bg-light { background-color: #f8f9fa !important; }
+
+        /* Force outline button styling */
+        .btn-outline-info {
+            color: #17a2b8 !important;
+            border-color: #17a2b8 !important;
+            background-color: transparent !important;
+        }
+        .btn-outline-info:hover {
+            color: #fff !important;
+            background-color: #17a2b8 !important;
+            border-color: #17a2b8 !important;
+        }
+        .btn-outline-warning {
+            color: #ffc107 !important;
+            border-color: #ffc107 !important;
+            background-color: transparent !important;
+        }
+        .btn-outline-warning:hover {
+            color: #212529 !important;
+            background-color: #ffc107 !important;
+            border-color: #ffc107 !important;
+        }
+        .btn-outline-danger {
+            color: #dc3545 !important;
+            border-color: #dc3545 !important;
+            background-color: transparent !important;
+        }
+        .btn-outline-danger:hover {
+            color: #fff !important;
+            background-color: #dc3545 !important;
+            border-color: #dc3545 !important;
+        }
+        .btn-outline-success {
+            color: #28a745 !important;
+            border-color: #28a745 !important;
+            background-color: transparent !important;
+        }
+        .btn-outline-success:hover {
+            color: #fff !important;
+            background-color: #28a745 !important;
+            border-color: #28a745 !important;
+        }
+
+        /* Force outline styling for specific button classes */
+        .edit-user-btn.btn-outline-warning,
+        .delete-user-btn.btn-outline-danger,
+        .btn-group .btn-outline-info,
+        .btn-group .btn-outline-warning,
+        .btn-group .btn-outline-danger,
+        .btn-group .btn-outline-success {
+            background-color: transparent !important;
+            border-width: 1px !important;
+        }
+
+        .edit-user-btn.btn-outline-warning:hover,
+        .delete-user-btn.btn-outline-danger:hover,
+        .btn-group .btn-outline-info:hover,
+        .btn-group .btn-outline-warning:hover,
+        .btn-group .btn-outline-danger:hover,
+        .btn-group .btn-outline-success:hover {
+            border-width: 1px !important;
+        }
+
+        /* Nuclear option - force all buttons in tables to be outline style */
+        .table .btn-group .btn,
+        .table .btn-group-sm .btn,
+        #users-tbody .btn,
+        #listeners-tbody .btn {
+            background-color: transparent !important;
+            border-width: 1px !important;
+            border-style: solid !important;
+        }
+
+        .table .btn-group .btn:hover,
+        .table .btn-group-sm .btn:hover,
+        #users-tbody .btn:hover,
+        #listeners-tbody .btn:hover {
+            border-width: 1px !important;
+            border-style: solid !important;
+        }
+    </style>
+</head>
+
+<body class="hold-transition sidebar-mini layout-fixed">
+<div class="wrapper">
+    <!-- Navbar -->
+    <nav class="main-header navbar navbar-expand navbar-white navbar-light">
+        <ul class="navbar-nav">
+            <li class="nav-item">
+                <a class="nav-link" data-widget="pushmenu" href="#" role="button">
+                    <i class="fas fa-bars"></i>
+                </a>
+            </li>
+        </ul>
+
+        <ul class="navbar-nav ml-auto">
+            <li class="nav-item dropdown">
+                <a class="nav-link" data-toggle="dropdown" href="#">
+                    <i class="fas fa-user"></i>
+                    <span id="user-display-name">User</span>
+                </a>
+                <div class="dropdown-menu dropdown-menu-lg dropdown-menu-right">
+                    <span class="dropdown-item-text">
+                        <span id="user-email">user@example.com</span>
+                    </span>
+                    <div class="dropdown-divider"></div>
+                    <a href="#" class="dropdown-item" onclick="showUserSettings()">
+                        <i class="fas fa-cog mr-2"></i> Settings
+                    </a>
+                    <div class="dropdown-divider"></div>
+                    <a href="/dashboard/logout" class="dropdown-item">
+                        <i class="fas fa-sign-out-alt mr-2"></i> Logout
+                    </a>
+                </div>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Main Sidebar -->
+    <aside class="main-sidebar sidebar-dark-primary elevation-4">
+        <a href="#" class="brand-link" onclick="showDashboard()">
+            <img src="/dashboard/static/images/chissl-66-100.png" alt="chiSSL Logo" class="brand-image" style="width: 33px; height: auto; opacity: .8;">
+            <span class="brand-text font-weight-light">chiSSL</span>
+        </a>
+
+        <div class="sidebar">
+            <nav class="mt-2">
+                <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu">
+                    <li class="nav-item">
+                        <a href="#" class="nav-link active" onclick="showDashboard()">
+                            <i class="nav-icon fas fa-tachometer-alt"></i>
+                            <p>Dashboard</p>
+                        </a>
+                    </li>
+                    <li class="nav-item"></li>
+                        <a href="#" class="nav-link" onclick="showTunnels()">
+                            <i class="nav-icon fas fa-exchange-alt"></i>
+                            <p>Tunnels</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link" onclick="showListeners()">
+                            <i class="nav-icon fas fa-satellite-dish"></i>
+                            <p>Listeners</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link" onclick="showAIMock()">
+                            <i class="nav-icon fas fa-robot"></i>
+                            <p>AI Mock API</p>
+                        </a>
+                    </li>
+                    <li class="nav-item admin-only" style="display: none;">
+                        <a href="#" class="nav-link" onclick="showUsers()">
+                            <i class="nav-icon fas fa-users"></i>
+                            <p>Users</p>
+                        </a>
+                    </li>
+                    <li class="nav-item admin-only" style="display: none;">
+                        <a href="#" class="nav-link" onclick="showLogs()">
+                            <i class="nav-icon fas fa-file-alt"></i>
+                            <p>Logs</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link" onclick="showUserSettings()">
+                            <i class="nav-icon fas fa-user-cog"></i>
+                            <p>User Settings</p>
+                        </a>
+                    </li>
+                    <li class="nav-item admin-only" style="display: none;">
+                        <a href="#" class="nav-link" onclick="showServerSettings()">
+                            <i class="nav-icon fas fa-cogs"></i>
+                            <p>Server Settings</p>
+                        </a>
+                    </li>
+                        <li class="nav-item">
+                            <a href="https://unblocked.github.io/chissl/" class="nav-link" target="_blank" rel="noopener">
+                                <i class="nav-icon fas fa-book"></i>
+                                <p>Documentation</p>
+                            </a>
+                        </li>
+
+                </ul>
+            </nav>
+        </div>
+    </aside>
+
+    <!-- Content Wrapper -->
+    <div class="content-wrapper">
+        <div class="content-header">
+            <div class="container-fluid">
+                <div class="row mb-2">
+                    <div class="col-sm-6">
+                        <h1 class="m-0" id="page-title">Dashboard</h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section class="content">
+            <div class="container-fluid" id="main-content">
+                <!-- Dynamic content will be loaded here -->
+                <div class="text-center">
+                    <i class="fas fa-spinner fa-spin fa-2x"></i>
+                    <p class="mt-2">Loading...</p>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<!-- jQuery -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<!-- Bootstrap -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+<!-- AdminLTE -->
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
+
+<!-- Dashboard JavaScript Modules -->
+<script src="/dashboard/static/js/core/app.js"></script>
+<script src="/dashboard/static/js/core/navigation.js"></script>
+<script src="/dashboard/static/js/views/dashboard.js"></script>
+<script src="/dashboard/static/js/views/tunnels.js"></script>
+<script src="/dashboard/static/js/views/users.js"></script>
+<script src="/dashboard/static/js/views/listeners.js"></script>
+<script src="/dashboard/static/js/views/ai-mock.js"></script>
+<script src="/dashboard/static/js/views/logs.js"></script>
+<script src="/dashboard/static/js/views/user-settings.js"></script>
+<script src="/dashboard/static/js/views/server-settings.js"></script>
+<script src="/dashboard/static/js/components/sso.js"></script>
+<script src="/dashboard/static/js/components/port-reservations.js"></script>
+<script src="/dashboard/static/js/utils/traffic-inspector.js"></script>
+
+</body>
+</html>

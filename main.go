@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	chadmin "github.com/NextChapterSoftware/chissl/admin"
 	"log"
 	"net/http"
 	"os"
@@ -15,8 +14,10 @@ import (
 	chclient "github.com/NextChapterSoftware/chissl/client"
 	chserver "github.com/NextChapterSoftware/chissl/server"
 	chshare "github.com/NextChapterSoftware/chissl/share"
+	"github.com/NextChapterSoftware/chissl/share/auth"
 	"github.com/NextChapterSoftware/chissl/share/ccrypto"
 	"github.com/NextChapterSoftware/chissl/share/cos"
+	"github.com/NextChapterSoftware/chissl/share/database"
 	"github.com/NextChapterSoftware/chissl/share/settings"
 )
 
@@ -28,7 +29,6 @@ var help = `
   Commands:
     server - runs chissl in server mode
     client - runs chissl in client mode
-    admin  - runs local admin client for user management
 
   Read more:
     https://github.com/NextChapterSoftware/chissl
@@ -62,8 +62,6 @@ func main() {
 		server(args)
 	case "client":
 		client(args)
-	case "admin":
-		admin(args)
 	default:
 		fmt.Print(help)
 		os.Exit(0)
@@ -168,13 +166,46 @@ var serverHelp = `
     holding multiple PEM encode CA certificate bundle files, which is used to
     validate client connections. The provided CA certificates will be used
     instead of the system roots. This is commonly used to implement mutual-TLS.
+
+    --db-type, Database type (sqlite or postgres). Defaults to sqlite.
+
+    --db-file, SQLite database file path. Defaults to ./chissl.db.
+
+    --db-host, Database host for PostgreSQL. Defaults to localhost.
+
+    --db-port, Database port for PostgreSQL. Defaults to 5432.
+
+    --db-name, Database name for PostgreSQL. Defaults to chissl.
+
+    --db-user, Database username for PostgreSQL.
+
+    --db-pass, Database password for PostgreSQL.
+
+    --db-ssl, Database SSL mode for PostgreSQL. Defaults to disable.
+
+    --auth0-enabled, Enable Auth0 SSO integration.
+
+    --auth0-domain, Auth0 domain (e.g., your-tenant.auth0.com).
+
+    --auth0-client-id, Auth0 application client ID.
+
+    --auth0-client-secret, Auth0 application client secret.
+
+    --auth0-audience, Auth0 API audience identifier.
+
+    --dashboard, Enable the web dashboard interface.
+
+    --dashboard-path, URL path for the dashboard. Defaults to /dashboard.
 ` + commonHelp
 
 func server(args []string) {
 
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 
-	config := &chserver.Config{}
+	config := &chserver.Config{
+		Database: &database.DatabaseConfig{},
+		Auth0:    &auth.Auth0Config{},
+	}
 	flags.StringVar(&config.KeySeed, "key", "", "")
 	flags.StringVar(&config.KeyFile, "keyfile", "", "")
 	flags.StringVar(&config.AuthFile, "authfile", "", "")
@@ -185,6 +216,27 @@ func server(args []string) {
 	flags.StringVar(&config.TLS.Cert, "tls-cert", "", "")
 	flags.Var(multiFlag{&config.TLS.Domains}, "tls-domain", "")
 	flags.StringVar(&config.TLS.CA, "tls-ca", "", "")
+
+	// Database configuration
+	flags.StringVar(&config.Database.Type, "db-type", "sqlite", "Database type (sqlite or postgres)")
+	flags.StringVar(&config.Database.FilePath, "db-file", "./chissl.db", "SQLite database file path")
+	flags.StringVar(&config.Database.Host, "db-host", "localhost", "Database host")
+	flags.IntVar(&config.Database.Port, "db-port", 5432, "Database port")
+	flags.StringVar(&config.Database.Database, "db-name", "chissl", "Database name")
+	flags.StringVar(&config.Database.Username, "db-user", "", "Database username")
+	flags.StringVar(&config.Database.Password, "db-pass", "", "Database password")
+	flags.StringVar(&config.Database.SSLMode, "db-ssl", "disable", "Database SSL mode")
+
+	// Auth0 configuration
+	flags.BoolVar(&config.Auth0.Enabled, "auth0-enabled", false, "Enable Auth0 integration")
+	flags.StringVar(&config.Auth0.Domain, "auth0-domain", "", "Auth0 domain")
+	flags.StringVar(&config.Auth0.ClientID, "auth0-client-id", "", "Auth0 client ID")
+	flags.StringVar(&config.Auth0.ClientSecret, "auth0-client-secret", "", "Auth0 client secret")
+	flags.StringVar(&config.Auth0.Audience, "auth0-audience", "", "Auth0 audience")
+
+	// Dashboard configuration
+	flags.BoolVar(&config.Dashboard.Enabled, "dashboard", false, "Enable web dashboard")
+	flags.StringVar(&config.Dashboard.Path, "dashboard-path", "/dashboard", "Dashboard URL path")
 
 	host := flags.String("host", "", "")
 	p := flags.String("p", "", "")
@@ -466,77 +518,5 @@ func client(args []string) {
 	}
 	if err := c.Wait(); err != nil {
 		log.Fatal(err)
-	}
-}
-
-var adminHelp = `
-  Usage: chissl admin [subcommand] [options]
-
-  Subcommands:
-    adduser - Adds a new user
-    deluser - Deletes an existing user
-	getuser - Gets info about an existing user
-    listusers - Lists all users
-
-  Read more:
-    https://github.com/NextChapterSoftware/chissl
-
-`
-
-func admin(args []string) {
-	if len(args) == 0 {
-		fmt.Print(adminHelp)
-		os.Exit(0)
-	}
-
-	flags := flag.NewFlagSet("admin", flag.ContinueOnError)
-	profilePath := flags.String("profile", "", "Path to profile yaml file")
-
-	flags.Usage = func() {
-		fmt.Print(adminHelp)
-		os.Exit(1)
-	}
-
-	// Parse the flags for the main command
-	err := flags.Parse(args)
-	if err != nil {
-		log.Fatal("Error parsing main command flags:", err)
-
-	}
-
-	config := &chadmin.Config{}
-	config, err = chadmin.NewClientConfig(*profilePath, config)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	a, err := chadmin.NewAdminClient(config)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if len(args) < 1 && config.Server == "" {
-		log.Fatalln("No command line arguments or profile yaml provided")
-	}
-
-	// Pull out used args
-	args = flags.Args()
-
-	// Determine the subcommand
-	subcommand := args[0]
-	subcommandArgs := args[1:]
-
-	switch subcommand {
-	case "adduser":
-		a.AddUser(subcommandArgs)
-	case "deluser":
-		a.DelUser(subcommandArgs)
-	case "getuser":
-		a.GerUser(subcommandArgs)
-	case "listusers":
-		a.ListUsers(subcommandArgs)
-	default:
-		fmt.Print(adminHelp)
-		os.Exit(0)
 	}
 }

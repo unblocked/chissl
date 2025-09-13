@@ -43,13 +43,13 @@ func TestReverseMTLS_SSL(t *testing.T) {
 	//setup server, client, fileserver
 	teardown := simpleSetup(t,
 		&chserver.Config{
-			//Auth: "admin:admin",
-			TLS: *tlsConfig.serverTLS,
+			Auth: "admin:admin",
+			TLS:  *tlsConfig.serverTLS,
 		},
 		&chclient.Config{
 			Remotes: []string{tmpPort + "->$FILEPORT"},
-			//Auth:    "admin:admin",
-			TLS: *tlsConfig.clientTLS,
+			Auth:    "admin:admin",
+			TLS:     *tlsConfig.clientTLS,
 		})
 	defer teardown()
 	//test remote (this goes through the server and out the client)

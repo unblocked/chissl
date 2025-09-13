@@ -1,10 +1,14 @@
 package tunnel
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"sync"
 
 	"github.com/NextChapterSoftware/chissl/share/cio"
@@ -149,14 +153,101 @@ func (p *Proxy) pipeRemote(ctx context.Context, src io.ReadWriteCloser) {
 		l.Debugf("No remote connection")
 		return
 	}
-	//ssh request for tcp connection for this proxy's remote
+	// Prepare optional tap early so we can record failures too
+	var tap Tap
+	if t, ok := p.sshTun.(*Tunnel); ok && t.Config.TapFactory != nil {
+		meta := Meta{Username: t.Config.Username, Remote: *p.remote, ConnID: fmt.Sprintf("%d", cid)}
+		tap = t.Config.TapFactory(meta)
+		if tap != nil {
+			tap.OnOpen()
+		}
+	}
+	// Attempt to open SSH channel for this remote
 	dst, reqs, err := sshConn.OpenChannel("chisel", []byte(p.remote.Remote()))
 	if err != nil {
 		l.Infof("Stream error: %s", err)
+		if tap != nil {
+			// record failure close with zero bytes
+			tap.OnClose(0, 0)
+		}
 		return
 	}
 	go ssh.DiscardRequests(reqs)
-	//then pipe
-	s, r := cio.Pipe(src, dst)
-	l.Debugf("Close (sent %s received %s)", sizestr.ToString(s), sizestr.ToString(r))
+	// Pipe with tee if tap present
+	var sent, received int64
+	if tap != nil {
+		sent, received = cio.PipeWithTee(src, dst, tap.SrcWriter(), tap.DstWriter())
+		tap.OnClose(sent, received)
+		l.Debugf("Close (sent %s received %s)", sizestr.ToString(sent), sizestr.ToString(received))
+		return
+	}
+	// Fallback: plain pipe
+	sent, received = cio.Pipe(src, dst)
+	l.Debugf("Close (sent %s received %s)", sizestr.ToString(sent), sizestr.ToString(received))
+}
+
+// DeliverToRemote opens an SSH channel to the given remote and writes the payload bytes, then closes.
+func (t *Tunnel) DeliverToRemote(ctx context.Context, r *settings.Remote, payload []byte) error {
+	sshConn := t.getSSH(ctx)
+	if sshConn == nil {
+		return fmt.Errorf("no active ssh connection")
+	}
+	dst, reqs, err := sshConn.OpenChannel("chisel", []byte(r.Remote()))
+	if err != nil {
+		return err
+	}
+	go ssh.DiscardRequests(reqs)
+	defer dst.Close()
+	_, err = dst.Write(payload)
+	return err
+}
+
+// DeliverToRemoteWithResponse opens an SSH channel to the given remote, writes the payload,
+// half-closes the write side, then reads all response bytes until EOF or context timeout.
+func (t *Tunnel) DeliverToRemoteWithResponse(ctx context.Context, r *settings.Remote, payload []byte) ([]byte, error) {
+	sshConn := t.getSSH(ctx)
+	if sshConn == nil {
+		return nil, fmt.Errorf("no active ssh connection")
+	}
+	dst, reqs, err := sshConn.OpenChannel("chisel", []byte(r.Remote()))
+	if err != nil {
+		return nil, err
+	}
+	go ssh.DiscardRequests(reqs)
+	// Ensure channel closed on exit
+	defer dst.Close()
+	if _, err := dst.Write(payload); err != nil {
+		return nil, err
+	}
+	respCh := make(chan []byte, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		// Parse a single HTTP response from the channel without requiring EOF
+		br := bufio.NewReader(dst)
+		rq := &http.Request{Method: "POST"}
+		upResp, e := http.ReadResponse(br, rq)
+		if e != nil {
+			errCh <- e
+			return
+		}
+		defer upResp.Body.Close()
+		body, _ := io.ReadAll(upResp.Body)
+		// Reconstruct a complete HTTP/1.1 response
+		var out bytes.Buffer
+		// ensure we don't accidentally re-chunk
+		upResp.Header.Del("Transfer-Encoding")
+		upResp.ContentLength = int64(len(body))
+		upResp.Body = io.NopCloser(bytes.NewReader(body))
+		_ = upResp.Write(&out)
+		respCh <- out.Bytes()
+	}()
+	select {
+	case <-ctx.Done():
+		_ = dst.Close()
+		return nil, ctx.Err()
+	case e := <-errCh:
+		return nil, e
+	case b := <-respCh:
+		return b, nil
+	}
 }

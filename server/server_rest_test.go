@@ -207,8 +207,8 @@ func TestGetUserWithAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result != "No auth file configured on server\n" {
-		t.Fatalf("no auth info - expected 'No auth file configured on server' but got '%s'", result)
+	if result != "Unauthorized\n" {
+		t.Fatalf("no auth info - expected 'Unauthorized' but got '%s'", result)
 	}
 	teardown()
 

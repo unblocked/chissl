@@ -1,0 +1,727 @@
+openapi: 3.1.0
+info:
+  title: Chissl Server API
+  version: 1.0.0
+  description: Public and private APIs for the Chissl server. All endpoints are protected unless explicitly marked public.
+servers:
+  - url: /
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT or API Token
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: integer
+      additionalProperties: true
+    User:
+      type: object
+      properties:
+        username: { type: string }
+        email: { type: string, nullable: true }
+        display_name: { type: string, nullable: true }
+        is_admin: { type: boolean }
+      additionalProperties: true
+    UserList:
+      type: array
+      items: { $ref: '#/components/schemas/User' }
+    UserToken:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        token: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        last_used: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+    UserTokenList:
+      type: array
+      items: { $ref: '#/components/schemas/UserToken' }
+    Listener:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        username: { type: string }
+        port: { type: integer }
+        mode: { type: string }
+        use_tls: { type: boolean }
+        status: { type: string }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+      additionalProperties: true
+    ListenerList:
+      type: array
+      items: { $ref: '#/components/schemas/Listener' }
+    Tunnel:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        local_port: { type: integer, nullable: true }
+        local_host: { type: string, nullable: true }
+        remote_port: { type: integer, nullable: true }
+        remote_host: { type: string, nullable: true }
+        status: { type: string }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+      additionalProperties: true
+    TunnelList:
+      type: array
+      items: { $ref: '#/components/schemas/Tunnel' }
+    AIProvider:
+      type: object
+      properties:
+        id: { type: string, nullable: true }
+        name: { type: string }
+        provider_type: { type: string, enum: [openai, claude] }
+        api_endpoint: { type: string }
+        model: { type: string }
+        max_tokens: { type: integer }
+        temperature: { type: number }
+        enabled: { type: boolean }
+        created_by: { type: string, nullable: true }
+        test_status: { type: string, nullable: true }
+        test_message: { type: string, nullable: true }
+        test_at: { type: string, format: date-time, nullable: true }
+      additionalProperties: true
+    AIProviderList:
+      type: array
+      items: { $ref: '#/components/schemas/AIProvider' }
+    AIListener:
+      type: object
+      properties:
+        id: { type: string, nullable: true }
+        listener_id: { type: string }
+        ai_provider_id: { type: string }
+        openapi_spec: { type: string }
+        system_prompt: { type: string }
+        generation_status: { type: string }
+        conversation_thread: { type: string, nullable: true }
+        generated_responses: { type: string, nullable: true }
+        last_generated_at: { type: string, format: date-time, nullable: true }
+      additionalProperties: true
+    AIResponseVersion:
+      type: object
+      properties:
+        id: { type: string, nullable: true }
+        ai_listener_id: { type: string, nullable: true }
+        version_number: { type: integer }
+        openapi_spec: { type: string }
+        system_prompt: { type: string }
+        user_instructions: { type: string, nullable: true }
+        generated_responses: { type: string, nullable: true }
+        generation_status: { type: string }
+        generation_error: { type: string, nullable: true }
+        is_active: { type: boolean, nullable: true }
+      additionalProperties: true
+    AIListenerVersionsResponse:
+      type: object
+      properties:
+        ai_listener_id: { type: string }
+        listener_id: { type: string }
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/AIResponseVersion' }
+        active_version:
+          anyOf:
+            - { $ref: '#/components/schemas/AIResponseVersion' }
+            - { type: 'null' }
+    AIListenerCreateResponse:
+      type: object
+      properties:
+        id: { type: string }
+        ai_listener_id: { type: string }
+        generation_status: { type: string }
+        message: { type: string }
+
+    SystemInfo:
+      type: object
+      properties:
+        version: { type: string }
+        uptime: { type: number }
+        fingerprint: { type: string }
+        database: { type: boolean }
+        auth0: { type: boolean }
+        dashboard: { type: boolean }
+    Stats:
+      type: object
+      properties:
+        total_tunnels: { type: integer }
+        active_tunnels: { type: integer }
+        total_listeners: { type: integer }
+        active_listeners: { type: integer }
+        total_users: { type: integer }
+        active_sessions: { type: integer }
+        total_connections: { type: integer }
+        total_bytes_sent: { type: integer }
+        total_bytes_recv: { type: integer }
+        uptime_seconds: { type: integer }
+    SessionSummary:
+      type: object
+      properties:
+        active_count: { type: integer }
+    UserCreateRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+        is_admin: { type: boolean }
+    UserUpdateRequest:
+      type: object
+      required: [username]
+      properties:
+        username: { type: string }
+        password: { type: string }
+        is_admin: { type: boolean }
+    ListenerCreateRequest:
+      type: object
+      required: [name, port, mode]
+      properties:
+        name: { type: string }
+        port: { type: integer }
+        mode: { type: string, enum: [sink, proxy, ai-mock] }
+        target_url: { type: string }
+        response: { type: string }
+        use_tls: { type: boolean }
+    ListenerUpdateRequest:
+      type: object
+      properties:
+        name: { type: string }
+        target_url: { type: string }
+        response: { type: string }
+        status: { type: string }
+        use_tls: { type: boolean }
+    AIProviderCreateRequest:
+      type: object
+      required: [name, provider_type, api_key, model]
+      properties:
+        name: { type: string }
+        provider_type: { type: string, enum: [openai, claude] }
+        api_key: { type: string }
+        api_endpoint: { type: string }
+        model: { type: string }
+        max_tokens: { type: integer }
+        temperature: { type: number }
+        enabled: { type: boolean }
+    AIProviderUpdateRequest:
+      type: object
+      properties:
+        name: { type: string }
+        api_key: { type: string }
+        api_endpoint: { type: string }
+        model: { type: string }
+        max_tokens: { type: integer }
+        temperature: { type: number }
+        enabled: { type: boolean }
+    AIListenerCreateRequest:
+      type: object
+      required: [name, port, ai_provider_id, openapi_spec]
+      properties:
+        name: { type: string }
+        port: { type: integer }
+        ai_provider_id: { type: string }
+        openapi_spec: { type: string }
+        system_prompt: { type: string }
+        use_tls: { type: boolean }
+    AIListenerPreviewRequest:
+      type: object
+      required: [ai_provider_id, openapi_spec]
+      properties:
+        ai_provider_id: { type: string }
+        openapi_spec: { type: string }
+        system_prompt: { type: string }
+    AIListenerRefineRequest:
+      type: object
+      required: [ai_listener_id, openapi_spec, user_instructions]
+      properties:
+        ai_listener_id: { type: string }
+        openapi_spec: { type: string }
+        system_prompt: { type: string }
+        user_instructions: { type: string }
+        previous_responses: { type: string }
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+    ChatResponse:
+      type: object
+      properties:
+        response: { type: string }
+        status: { type: string }
+
+security:
+  - basicAuth: []
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Health check (public)
+      security: []
+      responses:
+        '200': { description: OK }
+  /version:
+    get:
+      summary: Build version (public)
+      security: []
+      responses:
+        '200': { description: Version string }
+  /api/sso/enabled:
+    get:
+      summary: List enabled SSO providers (public)
+      security: []
+      responses:
+        '200': { description: Enabled SSO list }
+  /auth/scim/login:
+    get:
+      summary: SCIM login (public)
+      security: []
+      responses: { '200': { description: Login flow } }
+  /auth/scim/callback:
+    get:
+      summary: SCIM callback (public)
+      security: []
+      responses: { '200': { description: Callback } }
+  /auth/auth0/login:
+    get:
+      summary: Auth0 login (public)
+      security: []
+      responses: { '200': { description: Login flow } }
+  /auth/auth0/callback:
+    get:
+      summary: Auth0 callback (public)
+      security: []
+      responses: { '200': { description: Callback } }
+
+  # Users (admin)
+  /users:
+    get:
+      summary: List users
+      responses: { '200': { description: OK } }
+    post:
+      summary: Create user
+      responses: { '201': { description: Created } }
+  /user/{username}:
+    parameters: [{ name: username, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: Get user by username
+      responses: { '200': { description: OK } }
+    delete:
+      summary: Delete user
+      responses: { '202': { description: Accepted } }
+  /user:
+    post:
+      summary: Add user
+      responses: { '201': { description: Created } }
+    put:
+      summary: Update user
+      responses: { '202': { description: Accepted } }
+  /api/users:
+    get:
+      summary: List users (API)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+    post:
+      summary: Create user (API)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+      responses:
+        '201': { description: Created }
+    put:
+      summary: Update user (API)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '200': { description: OK }
+    delete:
+      summary: Delete user (API)
+      responses: { '204': { description: No Content } }
+
+  # User self APIs (user)
+  /api/user/{username}/info:
+    parameters: [{ name: username, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: Get current user info
+      responses: { '200': { description: OK } }
+  /api/user/{username}/tokens:
+    parameters: [{ name: username, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: List API tokens
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserTokenList'
+    post: { summary: Create API token, responses: { '201': { description: Created } } }
+  /api/user/{username}/tokens/{tokenId}:
+    parameters:
+      - { name: username, in: path, required: true, schema: { type: string } }
+      - { name: tokenId, in: path, required: true, schema: { type: string } }
+    delete: { summary: Revoke API token, responses: { '204': { description: No Content } } }
+  /api/user/{username}/preferences/{key}:
+    parameters:
+      - { name: username, in: path, required: true, schema: { type: string } }
+      - { name: key, in: path, required: true, schema: { type: string } }
+    get: { summary: Get user preference, responses: { '200': { description: OK } } }
+    put: { summary: Set user preference, responses: { '200': { description: OK } } }
+  /api/user/{username}/profile:
+    parameters: [{ name: username, in: path, required: true, schema: { type: string } }]
+    put: { summary: Update user profile, responses: { '200': { description: OK } } }
+  /api/user/{username}/port-reservations:
+    parameters: [{ name: username, in: path, required: true, schema: { type: string } }]
+    get: { summary: List user's port reservations, responses: { '200': { description: OK } } }
+
+  # Port reservations (admin)
+  /api/port-reservations:
+    get: { summary: List port reservations, responses: { '200': { description: OK } } }
+    post: { summary: Create port reservation, responses: { '201': { description: Created } } }
+    delete: { summary: Delete port reservation, responses: { '204': { description: No Content } } }
+
+  # Settings (admin)
+  /api/settings/reserved-ports-threshold:
+    get: { summary: Get reserved ports threshold, responses: { '200': { description: OK } } }
+    post: { summary: Set reserved ports threshold, responses: { '200': { description: OK } } }
+  /api/settings/login-backoff:
+    get: { summary: Get login backoff settings, responses: { '200': { description: OK } } }
+    put: { summary: Update login backoff settings, responses: { '200': { description: OK } } }
+    post: { summary: Update login backoff settings, responses: { '200': { description: OK } } }
+  /api/settings/ip-rate:
+    get: { summary: Get IP rate settings, responses: { '200': { description: OK } } }
+    put: { summary: Update IP rate settings, responses: { '200': { description: OK } } }
+    post: { summary: Update IP rate settings, responses: { '200': { description: OK } } }
+  /api/settings/feature/ai-mock-visible:
+    get: { summary: Get AI Mock visibility, responses: { '200': { description: OK } } }
+    put: { summary: Set AI Mock visibility, responses: { '200': { description: OK } } }
+    post: { summary: Set AI Mock visibility, responses: { '200': { description: OK } } }
+
+  # Tunnels & capture (user)
+  /api/tunnels:
+    get:
+      summary: List tunnels
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TunnelList'
+  /api/tunnels/active:
+    get: { summary: List active tunnels, responses: { '200': { description: OK } } }
+  /api/tunnels/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: Get tunnel
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tunnel'
+    delete: { summary: Delete tunnel, responses: { '204': { description: No Content } } }
+  /api/tunnels/closed:
+    delete: { summary: Delete closed tunnels, responses: { '204': { description: No Content } } }
+  /api/capture/tunnels/{id}/connections:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get: { summary: List capture connections, responses: { '200': { description: OK } } }
+  /api/capture/tunnels/{id}/download:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get: { summary: Download capture log, responses: { '200': { description: OK } } }
+  /api/capture/tunnels/{id}/recent:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get: { summary: Recent capture events, responses: { '200': { description: OK } } }
+  /api/capture/tunnels/{id}/stream:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get: { summary: SSE capture stream, responses: { '200': { description: OK } } }
+  /api/capture/listeners/{id}/recent:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get: { summary: Recent listener events, responses: { '200': { description: OK } } }
+  /api/capture/listeners/{id}/stream:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get: { summary: SSE listener stream, responses: { '200': { description: OK } } }
+
+  # Listeners (user)
+  /api/listeners:
+    get:
+      summary: List listeners
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListenerList'
+    post:
+      summary: Create listener
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListenerCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Listener'
+  /api/listener/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: Get listener
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Listener'
+    put:
+      summary: Update listener
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListenerUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Listener'
+    delete:
+      summary: Delete listener
+      responses: { '204': { description: No Content } }
+
+  # Sessions & system (admin/user as indicated in code)
+  /api/sessions:
+    get:
+      summary: List sessions (admin)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionSummary'
+  /api/sessions/closed:
+    delete: { summary: Delete closed sessions (user), responses: { '204': { description: No Content } } }
+  /api/system:
+    get:
+      summary: System info (user)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemInfo'
+  /api/stats:
+    get:
+      summary: Stats (user)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+
+  # Logs (admin)
+  /api/logs:
+    get: { summary: Get logs, responses: { '200': { description: OK } } }
+  /api/logs/files:
+    get: { summary: List log files, responses: { '200': { description: OK } } }
+  /api/logs/files/{name}:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get: { summary: Get log file content, responses: { '200': { description: OK } } }
+  /api/logs/files/{name}/download:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get: { summary: Download log file, responses: { '200': { description: OK } } }
+  /api/logs/clear:
+    post: { summary: Clear logs, responses: { '200': { description: OK } } }
+
+  # SSO admin APIs (admin)
+  /api/sso/configs:
+    get: { summary: List SSO configs, responses: { '200': { description: OK } } }
+    post: { summary: Create SSO config, responses: { '201': { description: Created } } }
+  /api/sso/configs/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get: { summary: Get SSO config, responses: { '200': { description: OK } } }
+    delete: { summary: Delete SSO config, responses: { '204': { description: No Content } } }
+  /api/sso/configs/{id}/test:
+    post: { summary: Test SSO config, responses: { '200': { description: OK } } }
+  /api/sso/user-sources:
+    get: { summary: List user auth sources, responses: { '200': { description: OK } } }
+
+  # Security (admin)
+  /api/security/events:
+    get: { summary: List security events, responses: { '200': { description: OK } } }
+  /api/security/webhooks:
+    get: { summary: List webhooks, responses: { '200': { description: OK } } }
+    post: { summary: Create webhook, responses: { '201': { description: Created } } }
+    put: { summary: Update webhook, responses: { '200': { description: OK } } }
+    delete: { summary: Delete webhook, responses: { '204': { description: No Content } } }
+  /api/security/webhooks/test:
+    post: { summary: Test webhook, responses: { '200': { description: OK } } }
+
+  # Multicast tunnels
+  /api/multicast-tunnels/public:
+    get: { summary: List public multicast tunnels (user), responses: { '200': { description: OK } } }
+  /api/multicast-tunnels:
+    get: { summary: List multicast tunnels (admin), responses: { '200': { description: OK } } }
+    post: { summary: Create multicast tunnel (admin), responses: { '201': { description: Created } } }
+    put: { summary: Update multicast tunnel (admin), responses: { '200': { description: OK } } }
+    patch: { summary: Update multicast tunnel (admin), responses: { '200': { description: OK } } }
+    delete: { summary: Delete multicast tunnel (admin), responses: { '204': { description: No Content } } }
+
+  # AI Providers (admin)
+  /api/ai-providers:
+    get:
+      summary: List AI providers
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIProviderList'
+    post:
+      summary: Create AI provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIProviderCreateRequest'
+      responses: { '201': { description: Created } }
+  /api/ai-providers/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: Get AI provider
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIProvider'
+    put:
+      summary: Update AI provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIProviderUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIProvider'
+    delete: { summary: Delete AI provider, responses: { '204': { description: No Content } } }
+  /api/ai-providers/{id}/test:
+    post: { summary: Test AI provider, responses: { '200': { description: OK } } }
+
+  # AI Listeners (user)
+  /api/ai-listeners:
+    post:
+      summary: Create AI listener
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIListenerCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIListenerCreateResponse'
+  /api/ai-listeners/preview:
+    post:
+      summary: Preview AI responses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIListenerPreviewRequest'
+      responses: { '200': { description: OK } }
+  /api/ai-listeners/refine:
+    post:
+      summary: Refine AI responses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIListenerRefineRequest'
+      responses: { '200': { description: OK } }
+  /api/ai-listeners/{id}/chat:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    post:
+      summary: Chat about responses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+  /api/ai-listeners/{id}/versions:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: Get versions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIListenerVersionsResponse'
+  /api/ai-listeners/{id}/activate/{versionId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: versionId, in: path, required: true, schema: { type: string } }
+    post: { summary: Activate version, responses: { '200': { description: OK } } }
+

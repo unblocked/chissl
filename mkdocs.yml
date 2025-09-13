@@ -1,0 +1,48 @@
+site_name: chiSSL Documentation
+site_url: https://unblocked.github.io/chissl/
+site_description: Overview, guides, and API reference for chiSSL
+repo_url: https://github.com/unblocked/chissl
+nav:
+  - Overview: index.md
+  - Client: client.md
+  - API Reference: api.md
+  - Guides:
+      - Authentication & RBAC: guide/api-auth.md
+      - HTTPS on-demand tunnels: guide/tunnels-https.md
+      - HTTPS Inspection & MITM: guide/https-inspection.md
+      - Listeners (Mock & Proxy): guide/listeners.md
+      - Multicast Tunnels: guide/multicast.md
+      - Security Controls: guide/security.md
+      - CI & Releases: guide/ci-builds.md
+      - Dashboard Tips: guide/dashboard.md
+  - Dashboard: dashboard.md
+  - Database: database.md
+  - Auth0 SSO: auth0.md
+  - OpenAPI YAML: openapi-public.yaml
+theme:
+  name: material
+  icon:
+    logo: material/cloud-outline
+  features:
+    - navigation.tabs
+    - navigation.top
+    - content.code.copy
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+markdown_extensions:
+  - toc:
+      permalink: true
+  - tables
+  - fenced_code
+extra_css:
+  - assets/css/redoc.css
+plugins:
+  - search
+

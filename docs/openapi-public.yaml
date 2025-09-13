@@ -1,0 +1,211 @@
+openapi: 3.0.3
+info:
+  title: chiSSL Public API
+  version: 1.0.0
+  description: Public endpoints for users, listeners, tunnels, sessions, system and stats.
+servers:
+  - url: /
+paths:
+  /api/system:
+    get:
+      summary: System info (user)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemInfo'
+  /api/stats:
+    get:
+      summary: Stats (user)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+  /api/users:
+    get:
+      summary: List users (admin)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+    post:
+      summary: Create user (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+      responses:
+        '201': { description: Created }
+    put:
+      summary: Update user (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '200': { description: OK }
+    delete:
+      summary: Delete user (admin)
+      responses: { '204': { description: No Content } }
+  /api/listeners:
+    get:
+      summary: List listeners (user)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListenerList'
+    post:
+      summary: Create listener (user)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListenerCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Listener'
+  /api/listener/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: Get listener (user)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Listener'
+    put:
+      summary: Update listener (user)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListenerUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Listener'
+    delete:
+      summary: Delete listener (user)
+      responses: { '204': { description: No Content } }
+  /api/tunnels:
+    get:
+      summary: List tunnels (user)
+      responses:
+        '200':
+          description: OK
+  /api/tunnels/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: Get tunnel (user)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tunnel'
+    delete:
+      summary: Delete tunnel (user)
+      responses: { '204': { description: No Content } }
+  /api/sessions:
+    get:
+      summary: List sessions (admin)
+      responses:
+        '200':
+          description: OK
+
+components:
+  schemas:
+    SystemInfo:
+      type: object
+      properties:
+        version: { type: string }
+        uptime: { type: number }
+        fingerprint: { type: string }
+    Stats:
+      type: object
+      properties:
+        total_tunnels: { type: integer }
+        active_tunnels: { type: integer }
+    User:
+      type: object
+      properties:
+        username: { type: string }
+        is_admin: { type: boolean }
+    UserList:
+      type: array
+      items: { $ref: '#/components/schemas/User' }
+    UserCreateRequest:
+      type: object
+      required: [username]
+      properties:
+        username: { type: string }
+        password: { type: string }
+        is_admin: { type: boolean }
+    UserUpdateRequest:
+      type: object
+      properties:
+        password: { type: string }
+        is_admin: { type: boolean }
+    Listener:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        name: { type: string }
+        mode: { type: string, enum: [proxy, mock] }
+        port: { type: integer }
+        status: { type: string }
+    ListenerList:
+      type: array
+      items: { $ref: '#/components/schemas/Listener' }
+    ListenerCreateRequest:
+      type: object
+      required: [name, mode, port]
+      properties:
+        name: { type: string }
+        mode: { type: string, enum: [proxy, mock] }
+        port: { type: integer }
+        target_url: { type: string, nullable: true }
+        use_tls: { type: boolean }
+    ListenerUpdateRequest:
+      type: object
+      properties:
+        name: { type: string }
+        target_url: { type: string }
+        use_tls: { type: boolean }
+        status: { type: string }
+    Tunnel:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        connected_at: { type: string, format: date-time }
+        status: { type: string }
+
