@@ -94,7 +94,7 @@ jobs:
         if: success()
         uses: docker://goreleaser/goreleaser:latest
         env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CGO_ENABLED: 1
         with:
           args: release --verbose --config .github/goreleaser.yml
