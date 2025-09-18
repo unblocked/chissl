@@ -1,4 +1,13 @@
-on: [push, pull_request]
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch: {}
 name: CI
 jobs:
   # ================
@@ -13,12 +22,37 @@ jobs:
         go-version: [1.21.x]
         platform: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
+    # Run on trusted events:
+    # - push/tags/manual
+    # - pull_request by OWNER/MEMBER/COLLABORATOR
+    # - approved review by OWNER/MEMBER/COLLABORATOR
+    if: >-
+      ${{
+        github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' &&
+          (github.event.pull_request.author_association == 'OWNER' ||
+           github.event.pull_request.author_association == 'MEMBER' ||
+           github.event.pull_request.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'pull_request_review' &&
+          github.event.review.state == 'approved' &&
+          (github.event.review.author_association == 'OWNER' ||
+           github.event.review.author_association == 'MEMBER' ||
+           github.event.review.author_association == 'COLLABORATOR'))
+      }}
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
-      - name: Checkout code
+      - name: Checkout PR head (on approved review)
+        if: github.event_name == 'pull_request_review'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Checkout code (push/tags/manual)
+        if: github.event_name != 'pull_request_review'
         uses: actions/checkout@v4
       - name: Build (CGO)
         shell: bash
@@ -74,7 +108,15 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: 1.21.x
-      - name: Checkout code
+      - name: Checkout PR head (on approved review)
+        if: github.event_name == 'pull_request_review'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Checkout code (push/tags/manual)
+        if: github.event_name != 'pull_request_review'
         uses: actions/checkout@v4
       - name: Run legacy e2e tests
         shell: bash
