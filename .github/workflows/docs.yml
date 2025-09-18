@@ -6,6 +6,11 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
   pull_request_review:
     types: [submitted]
   workflow_dispatch: {}
@@ -23,12 +28,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     if: >-
-      ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'pull_request_review' &&
-            github.event.review.state == 'approved' &&
-            (github.event.review.author_association == 'OWNER' ||
-             github.event.review.author_association == 'MEMBER' ||
-             github.event.review.author_association == 'COLLABORATOR')) }}
+      ${{
+        github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' &&
+          (github.event.pull_request.author_association == 'OWNER' ||
+           github.event.pull_request.author_association == 'MEMBER' ||
+           github.event.pull_request.author_association == 'COLLABORATOR')) ||
+        (github.event_name == 'pull_request_review' &&
+          github.event.review.state == 'approved' &&
+          (github.event.review.author_association == 'OWNER' ||
+           github.event.review.author_association == 'MEMBER' ||
+           github.event.review.author_association == 'COLLABORATOR'))
+      }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
