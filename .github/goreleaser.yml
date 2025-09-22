@@ -3,7 +3,7 @@
 # - goreleaser --skip-publish --rm-dist --config .github/goreleaser.yml
 builds:
   - env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     ldflags:
       - -s -w -X github.com/NextChapterSoftware/chissl/share.BuildVersion={{.Version}}
     flags:
