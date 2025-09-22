@@ -59,12 +59,12 @@ brews:
       name: chissl
       branch: brew-releases/{{ .Version }}
       token: "{{ .Env.GITHUB_TOKEN }}"
-    pull_request:
-      enabled: true
-      base:
-        owner: unblocked
-        name: chissl
-        branch: main
+      pull_request:
+        enabled: true
+        base:
+          owner: unblocked
+          name: chissl
+          branch: main
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
