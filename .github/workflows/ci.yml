@@ -94,8 +94,7 @@ jobs:
           sudo apt-get install -y \
             gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu \
             libc6-dev-armhf-cross libc6-dev-arm64-cross \
-            linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross \
-            gcc-multilib libc6-dev-i386
+            linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5
@@ -106,7 +105,43 @@ jobs:
         env:
           GORELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CGO_ENABLED: 1
+
+  build_clients:
+    name: Build clients (CGO off)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.21.x
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build all client binaries
+        run: |
+          make client-all VERSION=dev
+
+  build_server_linux:
+    name: Build server (Linux only, CGO on)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.21.x
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install cross toolchains and libc headers (Linux CGO)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu \
+            libc6-dev-armhf-cross libc6-dev-arm64-cross \
+            linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross
+      - name: Build server linux binaries
+        run: |
+          make server-linux-all VERSION=dev
 
   legacy_e2e:
     name: Legacy e2e (non-blocking)

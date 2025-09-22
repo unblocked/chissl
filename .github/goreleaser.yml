@@ -3,8 +3,40 @@
 # - goreleaser --skip-publish --rm-dist --config .github/goreleaser.yml
 
 builds:
-  - env:
+  - id: server
+    main: .
+    binary: chissl-server
+    env:
       - CGO_ENABLED=1
+    ldflags:
+      - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
+    flags:
+      - -trimpath
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm     # only v7 is stable
+    goarm:
+      - 7
+    tags:
+      - server
+    overrides:
+      - goos: linux
+        goarch: arm
+        env:
+          - CC=arm-linux-gnueabihf-gcc
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=aarch64-linux-gnu-gcc
+
+  - id: client
+    main: .
+    binary: chissl
+    env:
+      - CGO_ENABLED=0
     ldflags:
       - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
     flags:
@@ -16,19 +48,10 @@ builds:
     goarch:
       - amd64
       - arm64
-      - 386     # optional: legacy Linux x86
-      - arm     # only v7 is stable
+      - 386
+      - arm
     goarm:
-      - 7       # only keep armv7 (Raspberry Pi 2/3, etc.)
-    overrides:
-      - goos: linux
-        goarch: arm
-        env:
-          - CC=arm-linux-gnueabihf-gcc
-      - goos: linux
-        goarch: arm64
-        env:
-          - CC=aarch64-linux-gnu-gcc
+      - 7
 
 
 archives:

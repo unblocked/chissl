@@ -27,10 +27,10 @@ linux-on-darwin: lint
 # brew tap messense/macos-cross-toolchains
 # brew install x86_64-unknown-linux-gnu
 linux-on-darwin-with-cgo: lint
-	GOARCH=amd64 GOOS=linux CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_amd64 .
+	GOARCH=amd64 GOOS=linux CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc go build -tags server -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_amd64 .
 
 linux-on-darwin-with-cgo-with-tests: lint security-tests
-	GOARCH=amd64 GOOS=linux CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_amd64 .
+	GOARCH=amd64 GOOS=linux CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc go build -tags server -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_amd64 .
 
 
 make-linux-in-docker-on-darwin: lint
@@ -96,3 +96,48 @@ docs-build:
 	else \
 		echo "[docs] MkDocs not installed; skipping build. (Install: pip install mkdocs mkdocs-material)"; \
 	fi
+
+
+# ----------------------
+# Client builds (CGO disabled)
+# ----------------------
+client-darwin-amd64:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-darwin_amd64 .
+
+client-darwin-arm64:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-darwin_arm64 .
+
+client-windows-amd64:
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-windows_amd64.exe .
+
+client-windows-arm64:
+	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-windows_arm64.exe .
+
+client-linux-amd64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_amd64 .
+
+client-linux-arm64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_arm64 .
+
+client-linux-armv7:
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_armv7 .
+
+client-linux-386:
+	CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-linux_386 .
+
+client-all: client-darwin-amd64 client-darwin-arm64 client-windows-amd64 client-windows-arm64 client-linux-amd64 client-linux-arm64 client-linux-armv7 client-linux-386
+
+# ----------------------
+# Server Linux builds (CGO enabled, server build tag)
+# Requires cross-compilers on Ubuntu: aarch64-linux-gnu-gcc, arm-linux-gnueabihf-gcc
+# ----------------------
+server-linux-amd64:
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags server -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-server-linux_amd64 .
+
+server-linux-arm64:
+	CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -tags server -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-server-linux_arm64 .
+
+server-linux-armv7:
+	CC=arm-linux-gnueabihf-gcc CGO_ENABLED=1 GOOS=linux GOARCH=arm GOARM=7 go build -tags server -trimpath ${LDFLAGS} ${GCFLAGS} ${ASMFLAGS} -o ${DIR}/chissl-server-linux_armv7 .
+
+server-linux-all: server-linux-amd64 server-linux-arm64 server-linux-armv7
