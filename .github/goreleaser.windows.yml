@@ -12,6 +12,11 @@ builds:
       - windows
     goarch:
       - amd64
+    overrides:
+      - goos: windows
+        goarch: amd64
+        env:
+          - CC=cl.exe
 
 archives:
   - format: binary

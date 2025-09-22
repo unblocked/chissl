@@ -51,16 +51,6 @@ jobs:
         with:
           go-version: 1.21.x
 
-      - name: Set up MSYS2 (Windows)
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          msystem: MINGW64
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-pkg-config
-
       - name: Install cross toolchains and libc headers (Linux CGO)
         if: runner.os == 'Linux'
         run: |
@@ -80,6 +70,10 @@ jobs:
         env:
           CGO_ENABLED: 1
 
+      - name: Set up MSVC build tools (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Run GoReleaser build [Windows]
         if: runner.os == 'Windows'
         uses: goreleaser/goreleaser-action@v5
@@ -89,6 +83,7 @@ jobs:
           args: build --verbose --snapshot --clean --config .github/goreleaser.windows.yml
         env:
           CGO_ENABLED: 1
+          CC: cl.exe
 
       - name: Run GoReleaser build [Darwin]
         if: runner.os == 'macOS'
