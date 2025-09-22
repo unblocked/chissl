@@ -54,12 +54,22 @@ jobs:
       - name: Install cross toolchains and libc headers (Linux CGO)
         if: runner.os == 'Linux'
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y \
             gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu \
             libc6-dev-armhf-cross libc6-dev-arm64-cross \
             linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross \
             mingw-w64 gcc-mingw-w64 gcc-mingw-w64-x86-64
+          # ensure mingw uses win32 threads model (so -mthreads is supported)
+          if command -v update-alternatives >/dev/null 2>&1; then
+            if [ -x /usr/bin/x86_64-w64-mingw32-gcc-win32 ]; then
+              sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-win32 || true
+            fi
+            if [ -x /usr/bin/x86_64-w64-mingw32-g++-win32 ]; then
+              sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-win32 || true
+            fi
+          fi
 
       - name: Run GoReleaser build [Linux+Windows]
         if: runner.os == 'Linux'
