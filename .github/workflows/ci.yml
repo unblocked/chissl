@@ -90,6 +90,11 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
+      - name: Install ARM cross-compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu
+
       - name: goreleaser
         if: success()
         uses: docker://goreleaser/goreleaser:latest
