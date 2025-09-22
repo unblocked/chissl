@@ -27,22 +27,6 @@ builds:
         env:
           - CC=aarch64-linux-gnu-gcc
 
-  - id: windows
-    env:
-      - CGO_ENABLED=1
-    ldflags:
-      - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
-    flags:
-      - -trimpath
-    goos:
-      - windows
-    goarch:
-      - amd64
-    overrides:
-      - goos: windows
-        goarch: amd64
-        env:
-          - CC=x86_64-w64-mingw32-gcc
 
 archives:
   - format: binary
