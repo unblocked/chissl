@@ -83,12 +83,16 @@ jobs:
     name: Release Binaries
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
 
       - name: Install cross toolchains and libc headers (Linux CGO)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -96,12 +100,25 @@ jobs:
             libc6-dev-armhf-cross libc6-dev-arm64-cross \
             linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross
 
-      - name: Run GoReleaser
+      - name: Run GoReleaser [Linux+Windows]
+        if: runner.os == 'Linux'
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
-          version: latest
-          args: release --verbose --config .github/goreleaser.yml
+          version: v2.4.0
+          args: release --verbose --config .github/goreleaser.linuxwin.yml
+        env:
+          GORELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CGO_ENABLED: 1
+
+      - name: Run GoReleaser [Darwin]
+        if: runner.os == 'macOS'
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          distribution: goreleaser
+          version: v2.4.0
+          args: release --verbose --config .github/goreleaser.darwin.yml
         env:
           GORELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
