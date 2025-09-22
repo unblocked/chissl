@@ -60,7 +60,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
-          version: latest
+          version: v2.4.0
           args: release --verbose --skip-publish --skip-sign --snapshot --clean --config .github/goreleaser.yml --id linux_windows
         env:
           CGO_ENABLED: 1
@@ -70,7 +70,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
-          version: latest
+          version: v2.4.0
           args: release --verbose --skip-publish --skip-sign --snapshot --clean --config .github/goreleaser.yml --id darwin
         env:
           CGO_ENABLED: 1
