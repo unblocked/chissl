@@ -3,7 +3,8 @@
 # - goreleaser --skip-publish --rm-dist --config .github/goreleaser.yml
 
 builds:
-  - env:
+  - id: linux_windows
+    env:
       - CGO_ENABLED=1
     ldflags:
       - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
@@ -11,14 +12,13 @@ builds:
       - -trimpath
     goos:
       - linux
-      - darwin
       - windows
     goarch:
       - amd64
       - arm64
-      - arm     # only v7 is stable
+      - arm
     goarm:
-      - 7       # only keep armv7 (Raspberry Pi 2/3, etc.)
+      - 7
     overrides:
       - goos: linux
         goarch: arm
@@ -29,6 +29,19 @@ builds:
         goarch: arm64
         env:
           - CC=aarch64-linux-gnu-gcc
+
+  - id: darwin
+    env:
+      - CGO_ENABLED=1
+    ldflags:
+      - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
+    flags:
+      - -trimpath
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
 
 
 archives:
