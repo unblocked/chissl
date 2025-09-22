@@ -95,6 +95,7 @@ jobs:
         uses: docker://goreleaser/goreleaser:latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CGO_ENABLED: 1
         with:
           args: release --verbose --config .github/goreleaser.yml

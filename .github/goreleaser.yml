@@ -3,9 +3,9 @@
 # - goreleaser --skip-publish --rm-dist --config .github/goreleaser.yml
 builds:
   - env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     ldflags:
-      - -s -w -X github.com/NextChapterSoftware/chissl/share.BuildVersion={{.Version}}
+      - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
     flags:
       - -trimpath
     goos:
@@ -50,7 +50,7 @@ changelog:
       - "^test:"
 brews:
   - name: chissl
-    homepage: "https://github.com/NextChapterSoftware/chissl"
+    homepage: "https://github.com/unblocked/chissl"
     directory: Formula
     description: "HTTPS reverse tunnel server/client"
     license: "MIT"
@@ -61,17 +61,17 @@ brews:
     install: |
       bin.install "chissl"
     repository:
-      owner: NextChapterSoftware
+      owner: unblocked
       name: chissl
       branch: brew-releases/{{ .Version }}
       token: "{{ .Env.GITHUB_TOKEN }}"
       pull_request:
         enabled: true
         base:
-          owner: NextChapterSoftware
+          owner: unblocked
           name: chissl
           branch: main
-    #url_template: "https://github.com/NextChapterSoftware/chissl/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    #url_template: "https://github.com/unblocked/chissl/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
     #download_strategy: CurlDownloadStrategy
     commit_author:
       name: goreleaserbot
