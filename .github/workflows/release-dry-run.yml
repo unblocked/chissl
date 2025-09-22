@@ -58,7 +58,8 @@ jobs:
           sudo apt-get install -y \
             gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu \
             libc6-dev-armhf-cross libc6-dev-arm64-cross \
-            linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross
+            linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross \
+            mingw-w64 gcc-mingw-w64 gcc-mingw-w64-x86-64
 
       - name: Run GoReleaser build [Linux+Windows]
         if: runner.os == 'Linux'
