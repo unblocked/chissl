@@ -101,6 +101,7 @@ jobs:
           args: release --verbose --config .github/goreleaser.yml
         env:
           GORELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CGO_ENABLED: 1
 
   legacy_e2e:
