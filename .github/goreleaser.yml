@@ -22,6 +22,7 @@ builds:
     overrides:
       - goos: linux
         goarch: arm
+        goarm: 7
         env:
           - CC=arm-linux-gnueabihf-gcc
       - goos: linux
