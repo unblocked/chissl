@@ -106,7 +106,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.4.0
-          args: release --verbose --config .github/goreleaser.yml --id linux_windows
+          args: release --verbose --config .github/goreleaser.linuxwin.yml
         env:
           GORELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -118,7 +118,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.4.0
-          args: release --verbose --config .github/goreleaser.yml --id darwin
+          args: release --verbose --config .github/goreleaser.darwin.yml
         env:
           GORELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

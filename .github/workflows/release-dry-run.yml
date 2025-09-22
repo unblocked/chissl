@@ -61,7 +61,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.4.0
-          args: release --verbose --skip=publish --skip=sign --snapshot --clean --config .github/goreleaser.yml --id linux_windows
+          args: release --verbose --skip=publish --skip=sign --snapshot --clean --config .github/goreleaser.linuxwin.yml
         env:
           CGO_ENABLED: 1
 
@@ -71,7 +71,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.4.0
-          args: release --verbose --skip=publish --skip=sign --snapshot --clean --config .github/goreleaser.yml --id darwin
+          args: release --verbose --skip=publish --skip=sign --snapshot --clean --config .github/goreleaser.darwin.yml
         env:
           CGO_ENABLED: 1
 
