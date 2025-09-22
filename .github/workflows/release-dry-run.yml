@@ -55,23 +55,23 @@ jobs:
             libc6-dev-armhf-cross libc6-dev-arm64-cross \
             linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross
 
-      - name: Run GoReleaser (skip publish, snapshot) [Linux+Windows]
+      - name: Run GoReleaser build [Linux+Windows]
         if: runner.os == 'Linux'
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
           version: v2.4.0
-          args: release --verbose --skip=publish --skip=sign --snapshot --clean --config .github/goreleaser.linuxwin.yml
+          args: build --verbose --snapshot --clean --config .github/goreleaser.linuxwin.yml
         env:
           CGO_ENABLED: 1
 
-      - name: Run GoReleaser (skip publish, snapshot) [Darwin]
+      - name: Run GoReleaser build [Darwin]
         if: runner.os == 'macOS'
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
           version: v2.4.0
-          args: release --verbose --skip=publish --skip=sign --snapshot --clean --config .github/goreleaser.darwin.yml
+          args: build --verbose --snapshot --clean --config .github/goreleaser.darwin.yml
         env:
           CGO_ENABLED: 1
 
