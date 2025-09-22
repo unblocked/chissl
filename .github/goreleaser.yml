@@ -16,7 +16,6 @@ builds:
     goarch:
       - amd64
       - arm64
-      - 386     # optional: legacy Linux x86
       - arm     # only v7 is stable
     goarm:
       - 7       # only keep armv7 (Raspberry Pi 2/3, etc.)
