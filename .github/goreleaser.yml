@@ -20,6 +20,16 @@ builds:
       - arm     # only v7 is stable
     goarm:
       - 7       # only keep armv7 (Raspberry Pi 2/3, etc.)
+    overrides:
+      - goos: linux
+        goarch: arm
+        env:
+          - CC=arm-linux-gnueabihf-gcc
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=aarch64-linux-gnu-gcc
+
 
 archives:
   - format: binary
