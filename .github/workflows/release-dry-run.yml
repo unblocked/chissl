@@ -41,10 +41,14 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Install ARM cross-compilers (Linux CGO)
+      - name: Install cross toolchains and libc headers (Linux CGO)
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu \
+            libc6-dev-armhf-cross libc6-dev-arm64-cross \
+            linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross \
+            gcc-multilib libc6-dev-i386
 
       - name: Run GoReleaser (skip publish, snapshot)
         uses: goreleaser/goreleaser-action@v5
