@@ -1,0 +1,68 @@
+name: Release Dry Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Build all release artifacts without publishing (admins/maintainers only)"
+        required: false
+        default: ""
+
+jobs:
+  check-permissions:
+    name: Check permissions
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+      level: ${{ steps.check.outputs.level }}
+    steps:
+      - name: Check collaborator permission level
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const username = context.actor;
+            const resp = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username });
+            const perm = resp.data.permission; // 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none'
+            const allowed = ['admin','maintain'].includes(perm);
+            core.info(`Actor ${username} permission: ${perm}. Allowed: ${allowed}`);
+            core.setOutput('allowed', allowed ? 'true' : 'false');
+            core.setOutput('level', perm);
+
+  release-dry-run:
+    name: GoReleaser (dry run)
+    needs: check-permissions
+    if: needs.check-permissions.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install ARM cross-compilers (Linux CGO)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu
+
+      - name: Run GoReleaser (skip publish, snapshot)
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --verbose --skip-publish --skip-sign --snapshot --clean --config .github/goreleaser.yml
+        env:
+          CGO_ENABLED: 1
+
+  deny:
+    name: Deny unauthorized
+    needs: check-permissions
+    if: needs.check-permissions.outputs.allowed != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop
+        run: |
+          echo "User '${{ github.actor }}' lacks required permission (need admin or maintain). Current: ${{ needs.check-permissions.outputs.level }}"
+          exit 1
+
