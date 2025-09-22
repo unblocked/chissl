@@ -38,7 +38,7 @@ jobs:
     if: needs.check-permissions.outputs.allowed == 'true'
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -51,33 +51,42 @@ jobs:
         with:
           go-version: 1.21.x
 
+      - name: Set up MSYS2 (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkg-config
+
       - name: Install cross toolchains and libc headers (Linux CGO)
         if: runner.os == 'Linux'
         run: |
-          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y \
             gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu \
             libc6-dev-armhf-cross libc6-dev-arm64-cross \
-            linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross \
-            mingw-w64 gcc-mingw-w64 gcc-mingw-w64-x86-64
-          # ensure mingw uses win32 threads model (so -mthreads is supported)
-          if command -v update-alternatives >/dev/null 2>&1; then
-            if [ -x /usr/bin/x86_64-w64-mingw32-gcc-win32 ]; then
-              sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-win32 || true
-            fi
-            if [ -x /usr/bin/x86_64-w64-mingw32-g++-win32 ]; then
-              sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-win32 || true
-            fi
-          fi
+            linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross
 
-      - name: Run GoReleaser build [Linux+Windows]
+      - name: Run GoReleaser build [Linux]
         if: runner.os == 'Linux'
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
           version: v2.4.0
           args: build --verbose --snapshot --clean --config .github/goreleaser.linuxwin.yml
+        env:
+          CGO_ENABLED: 1
+
+      - name: Run GoReleaser build [Windows]
+        if: runner.os == 'Windows'
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          distribution: goreleaser
+          version: v2.4.0
+          args: build --verbose --snapshot --clean --config .github/goreleaser.windows.yml
         env:
           CGO_ENABLED: 1
 
