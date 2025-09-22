@@ -1,6 +1,7 @@
 # test this goreleaser config with:
 # - cd chisel
 # - goreleaser --skip-publish --rm-dist --config .github/goreleaser.yml
+
 builds:
   - env:
       - CGO_ENABLED=1
@@ -13,17 +14,13 @@ builds:
       - darwin
       - windows
     goarch:
-      - 386
       - amd64
-      - arm
       - arm64
+      - 386     # optional: legacy Linux x86
+      - arm     # only v7 is stable
     goarm:
-      - 5
-      - 6
-      - 7
-    gomips:
-      - hardfloat
-      - softfloat
+      - 7       # only keep armv7 (Raspberry Pi 2/3, etc.)
+
 archives:
   - format: binary
     files:
@@ -37,24 +34,28 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end -}}
     format: zip
+
 universal_binaries:
   - replace: true
+
 release:
   draft: true
   prerelease: auto
+
 changelog:
   sort: asc
   filters:
     exclude:
       - "^docs:"
       - "^test:"
+
 brews:
   - name: chissl
     homepage: "https://github.com/unblocked/chissl"
     directory: Formula
     description: "HTTPS reverse tunnel server/client"
     license: "MIT"
-    goarm: 6
+    goarm: 7
     goamd64: v1
     ids:
       - homebrew
@@ -71,8 +72,6 @@ brews:
           owner: unblocked
           name: chissl
           branch: main
-    #url_template: "https://github.com/unblocked/chissl/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
-    #download_strategy: CurlDownloadStrategy
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
