@@ -91,6 +91,11 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.21.x
+
       - name: Install cross toolchains and libc headers (Linux CGO)
         if: runner.os == 'Linux'
         run: |
