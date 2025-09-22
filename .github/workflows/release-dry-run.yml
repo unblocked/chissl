@@ -1,6 +1,8 @@
 name: Release Dry Run
 
 on:
+  branch:
+    branches: [ fix_release_job_cgo_issue ]
   workflow_dispatch:
     inputs:
       note:
