@@ -403,21 +403,36 @@ function loadDashboard() {
         '<h6><i class="fab fa-github"></i> Open Source</h6>' +
         '<p class="text-muted">chiSSL is open source and available on GitHub</p>' +
         '<a href="https://github.com/unblocked/chissl" target="_blank" class="btn btn-outline-dark">' +
-        '<i class="fab fa-github"></i> View on GitHub</a>' +
+        '<i class="fab fa-github"></i> View on GitHub</a> ' +
+        '<a href="https://unblocked.github.io/chissl/" target="_blank" class="btn btn-outline-info ml-2">' +
+        '<i class="fas fa-book"></i> Docs</a>' +
+        '<div class="mt-3">' +
+        '<h6><i class="fas fa-terminal"></i> Install chiSSL client (Homebrew)</h6>' +
+        '<pre class="bg-light p-2"><code>brew tap unblocked/chissl https://github.com/unblocked/chissl\nbrew install unblocked/chissl/chissl</code></pre>' +
+        '</div>' +
         '</div>' +
         '<div class="col-md-6">' +
         '<h6><i class="fas fa-download"></i> Client Downloads</h6>' +
         '<p class="text-muted">Download the chiSSL client for your platform</p>' +
         '<div class="btn-group-vertical btn-group-sm" style="width: 100%;">' +
-        '<button class="btn btn-outline-primary mb-1" onclick="alert(\'Coming soon!\')">' +
-        '<i class="fab fa-windows"></i> Windows (x64)</button>' +
-        '<button class="btn btn-outline-primary mb-1" onclick="alert(\'Coming soon!\')">' +
-        '<i class="fab fa-apple"></i> macOS (Intel/Apple Silicon)</button>' +
-        '<button class="btn btn-outline-primary mb-1" onclick="alert(\'Coming soon!\')">' +
-        '<i class="fab fa-linux"></i> Linux (x64)</button>' +
-        '<button class="btn btn-outline-primary" onclick="alert(\'Coming soon!\')">' +
-        '<i class="fas fa-code"></i> Source Code</button>' +
+        '<a class="btn btn-outline-primary mb-1" href="https://github.com/unblocked/chissl/releases/latest/download/chissl_Windows_x86_64.zip" target="_blank">' +
+        '<i class="fab fa-windows"></i> Windows (x64)</a>' +
+        '<a class="btn btn-outline-primary mb-1" href="https://github.com/unblocked/chissl/releases/latest/download/chissl_Windows_arm64.zip" target="_blank">' +
+        '<i class="fab fa-windows"></i> Windows (arm64)</a>' +
+        '<a class="btn btn-outline-primary mb-1" href="https://github.com/unblocked/chissl/releases/latest/download/chissl_Darwin_x86_64.zip" target="_blank">' +
+        '<i class="fab fa-apple"></i> macOS (Intel)</a>' +
+        '<a class="btn btn-outline-primary mb-1" href="https://github.com/unblocked/chissl/releases/latest/download/chissl_Darwin_arm64.zip" target="_blank">' +
+        '<i class="fab fa-apple"></i> macOS (Apple Silicon)</a>' +
+        '<a class="btn btn-outline-primary mb-1" href="https://github.com/unblocked/chissl/releases/latest/download/chissl_Linux_x86_64.zip" target="_blank">' +
+        '<i class="fab fa-linux"></i> Linux (x64)</a>' +
+        '<a class="btn btn-outline-primary mb-1" href="https://github.com/unblocked/chissl/releases/latest/download/chissl_Linux_arm64.zip" target="_blank">' +
+        '<i class="fab fa-linux"></i> Linux (arm64)</a>' +
+        '<a class="btn btn-outline-primary mb-1" href="https://github.com/unblocked/chissl/releases/latest/download/chissl_Linux_armv7.zip" target="_blank">' +
+        '<i class="fab fa-linux"></i> Linux (armv7)</a>' +
+        '<a class="btn btn-outline-secondary" href="https://github.com/unblocked/chissl/releases" target="_blank">' +
+        '<i class="fas fa-list"></i> All releases</a>' +
         '</div>' +
+
         '</div>' +
         '</div>' +
         '</div></div></div>';

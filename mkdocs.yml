@@ -4,6 +4,8 @@ site_description: Overview, guides, and API reference for chiSSL
 repo_url: https://github.com/unblocked/chissl
 nav:
   - Overview: index.md
+  - Quick Start: quickstart.md
+
   - Client: client.md
   - API Reference: api.md
   - Guides:

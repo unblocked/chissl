@@ -18,10 +18,9 @@
 #   ./script_name.sh subdomain.example.com 8443
 #
 # To download and execute this script from a GitHub public repository in a single line:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/unblocked/chissl/v2.0/server_installer.sh) <domain_name> [port] [admin_password]
+#   bash <(curl -fsSL https://raw.githubusercontent.com/unblocked/chissl/main/server_installer.sh) <domain_name> [port] [admin_password]
 
-# Target chiSSL version tag
-VERSION_TAG="v2.0"
+# Install from the latest GitHub release (auto-detected)
 
 # Function to display usage
 usage() {
@@ -82,6 +81,7 @@ if ! is_valid_fqdn "$FQDN"; then
 fi
 
 # Only Linux is supported for server installer
+OS=$(uname | tr '[:upper:]' '[:lower:]')
 if [ "$OS" != "linux" ]; then
     echo "This installer currently supports Linux only."
     exit 1
@@ -132,12 +132,12 @@ case $ARCH in
 esac
 
 # Resolve server asset URL from GitHub release (robust to naming)
-API_URL="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION_TAG"
+API_URL="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
 AUTH_HEADER=()
 if [ -n "${GITHUB_TOKEN-}" ]; then AUTH_HEADER=( -H "Authorization: Bearer $GITHUB_TOKEN" ); fi
 URLS=$(curl -fsSL "${AUTH_HEADER[@]}" "$API_URL" | grep -oE '"browser_download_url": "[^"]+"' | cut -d '"' -f4)
 if [ -z "$URLS" ]; then
-  echo "Failed to query release assets for $VERSION_TAG from GitHub API"
+  echo "Failed to query release assets for latest from GitHub API"
   exit 1
 fi
 if [ "$ARCH" = "386" ]; then
@@ -149,7 +149,7 @@ if [ -z "$SERVER_URL" ] && [ "$ARCH" = "armv7" ]; then
   SERVER_URL=$(echo "$URLS" | grep -Ei 'chissl[-_]?server' | grep -Ei 'linux' | grep -Ei 'arm_?7' | head -n1)
 fi
 if [ -z "$SERVER_URL" ]; then
-  echo "Could not find a server binary asset for linux/$ARCH in release $VERSION_TAG"
+  echo "Could not find a server binary asset for linux/$ARCH in the latest release"
   echo "$URLS" | sed 's/^/  /'
   exit 1
 fi
