@@ -1,8 +1,6 @@
 name: Release Dry Run
 
 on:
-  push:
-    branches: [ split_server_client_binaries ]
   workflow_dispatch:
     inputs:
       note:

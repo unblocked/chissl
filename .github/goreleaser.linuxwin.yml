@@ -1,0 +1,58 @@
+version: 2
+
+builds:
+  - id: linux_windows
+    env:
+      - CGO_ENABLED=1
+    ldflags:
+      - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
+    flags:
+      - -trimpath
+    goos:
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
+    overrides:
+      - goos: linux
+        goarch: arm
+        goarm: 7
+        env:
+          - CC=arm-linux-gnueabihf-gcc
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=aarch64-linux-gnu-gcc
+
+archives:
+  - format: binary
+    files:
+      - none*
+  - id: homebrew
+    name_template: >-
+      {{- .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end -}}
+    format: zip
+
+universal_binaries:
+  - replace: true
+
+release:
+  draft: true
+  prerelease: auto
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+

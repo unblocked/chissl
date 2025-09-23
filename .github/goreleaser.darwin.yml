@@ -1,0 +1,72 @@
+version: 2
+
+builds:
+  - id: darwin
+    env:
+      - CGO_ENABLED=1
+    ldflags:
+      - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
+    flags:
+      - -trimpath
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: binary
+    files:
+      - none*
+  - id: homebrew
+    name_template: >-
+      {{- .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end -}}
+    format: zip
+
+universal_binaries:
+  - replace: true
+
+release:
+  draft: true
+  prerelease: auto
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+brews:
+  - name: chissl
+    homepage: "https://github.com/unblocked/chissl"
+    directory: Formula
+    description: "HTTPS reverse tunnel server/client"
+    license: "MIT"
+    goarm: 7
+    goamd64: v1
+    ids:
+      - homebrew
+    install: |
+      bin.install "chissl"
+    repository:
+      owner: unblocked
+      name: chissl
+      branch: brew-releases/{{ .Version }}
+      token: "{{ .Env.GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: unblocked
+          name: chissl
+          branch: main
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Version }} tag {{ .Tag }}"
+
