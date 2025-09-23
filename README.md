@@ -63,9 +63,14 @@ This lets you manage tunnel settings locally without repeating flags.
 ## Install
 - macOS/Linux via Homebrew (client):
 ```bash
+# (Optional) if you get a conflict with the old version 
+brew uninstall chissl
+
+# add the tap 
+brew tap unblocked/chissl https://github.com/unblocked/chissl
+
+# Install chiSSL client 
 brew install unblocked/chissl/chissl
-# or
-brew tap unblocked/chissl && brew install chissl
 ```
 
 - Server (Linux) one-liner:
