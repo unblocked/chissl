@@ -143,6 +143,33 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
+  finalize_release:
+    name: Publish GitHub Release (mark latest)
+    needs: release_binaries
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release (unset draft)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = context.ref.replace('refs/tags/', '');
+            core.info(`Publishing release for tag ${tag}`);
+            try {
+              const rel = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+              if (rel && rel.data && rel.data.draft) {
+                await github.rest.repos.updateRelease({ owner, repo, release_id: rel.data.id, draft: false });
+                core.info('Release published (draft=false)');
+              } else {
+                core.info('Release already published or not found as draft');
+              }
+            } catch (e) {
+              core.setFailed(`Failed to publish release for ${tag}: ${e.message}`);
+            }
+
   build_clients:
     name: Build clients (CGO off)
     needs: test
