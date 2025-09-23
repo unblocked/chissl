@@ -11,7 +11,7 @@ class Chissl < Formula
 
   on_intel do
     url "https://github.com/unblocked/chissl/releases/download/v2.0/chissl_Darwin_x86_64.zip"
-    sha256 "37361794cc33076c7c1e19ab001961660e81803d97911d7089b28444a93917a3"
+    sha256 "19c071dbd02f2de5b8ebe05b5b62f7a0b833becf9e6a2289feee3d7b3be1949a"
 
     def install
       bin.install "chissl"
@@ -19,7 +19,7 @@ class Chissl < Formula
   end
   on_arm do
     url "https://github.com/unblocked/chissl/releases/download/v2.0/chissl_Darwin_arm64.zip"
-    sha256 "f67c414805216a0c75142b27703dccf482adae07531690896a4a2f31658d92c6"
+    sha256 "412ce1ca1fd96496460159711cc9f6a44a21679ee804badf7b721909197e5ce1"
 
     def install
       bin.install "chissl"
