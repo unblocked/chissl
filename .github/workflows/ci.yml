@@ -110,6 +110,13 @@ jobs:
             libc6-dev-armhf-cross libc6-dev-arm64-cross \
             linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross
 
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.x
+          check-latest: true
+
       - name: Run GoReleaser [Linux+Windows]
         if: runner.os == 'Linux'
         uses: goreleaser/goreleaser-action@v5
@@ -121,6 +128,7 @@ jobs:
           GORELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CGO_ENABLED: 1
+
 
       - name: Run GoReleaser [Darwin]
         if: runner.os == 'macOS'
