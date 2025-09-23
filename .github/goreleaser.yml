@@ -58,7 +58,16 @@ builds:
 
 
 archives:
-  - format: binary
+  - id: client_bins
+    builds:
+      - client
+    format: binary
+    files:
+      - none*
+  - id: server_bins
+    builds:
+      - server
+    format: binary
     files:
       - none*
   - id: homebrew
