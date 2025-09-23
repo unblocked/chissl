@@ -48,6 +48,7 @@ universal_binaries:
 release:
   draft: true
   prerelease: auto
+  mode: append
 
 changelog:
   sort: asc
