@@ -1,8 +1,6 @@
 name: Release Dry Run
 
 on:
-  push:
-    branches: [ fix_release_job_cgo_issue ]
   workflow_dispatch:
     inputs:
       note:
@@ -36,10 +34,7 @@ jobs:
     name: GoReleaser (dry run)
     needs: check-permissions
     if: needs.check-permissions.outputs.allowed == 'true'
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
@@ -47,7 +42,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install cross toolchains and libc headers (Linux CGO)
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -55,25 +49,12 @@ jobs:
             libc6-dev-armhf-cross libc6-dev-arm64-cross \
             linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross
 
-      - name: Run GoReleaser build [Linux+Windows]
-        if: runner.os == 'Linux'
+      - name: Run GoReleaser (skip publish, snapshot)
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
-          version: v2.4.0
-          args: build --verbose --snapshot --clean --config .github/goreleaser.linuxwin.yml
-        env:
-          CGO_ENABLED: 1
-
-      - name: Run GoReleaser build [Darwin]
-        if: runner.os == 'macOS'
-        uses: goreleaser/goreleaser-action@v5
-        with:
-          distribution: goreleaser
-          version: v2.4.0
-          args: build --verbose --snapshot --clean --config .github/goreleaser.darwin.yml
-        env:
-          CGO_ENABLED: 1
+          version: latest
+          args: release --verbose --skip-publish --skip-sign --snapshot --clean --config .github/goreleaser.yml
 
   deny:
     name: Deny unauthorized

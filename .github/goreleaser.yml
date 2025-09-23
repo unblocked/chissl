@@ -3,52 +3,76 @@
 # - goreleaser --skip-publish --rm-dist --config .github/goreleaser.yml
 
 builds:
-  - id: linux_windows
+  - id: server
+    main: .
+    binary: chissl-server
     env:
       - CGO_ENABLED=1
     ldflags:
-      - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
+      - -s -w -X github.com/NextChapterSoftware/chissl/share.BuildVersion={{.Version}}
     flags:
       - -trimpath
     goos:
       - linux
-      - windows
     goarch:
       - amd64
       - arm64
-      - arm
+      - arm     # only v7 is stable
     goarm:
       - 7
+    tags:
+      - server
     overrides:
       - goos: linux
         goarch: arm
         goarm: 7
         env:
           - CC=arm-linux-gnueabihf-gcc
+          - CGO_ENABLED=1
       - goos: linux
         goarch: arm64
         env:
           - CC=aarch64-linux-gnu-gcc
+          - CGO_ENABLED=1
 
-  - id: darwin
+  - id: client
+    main: .
+    binary: chissl
     env:
-      - CGO_ENABLED=1
+      - CGO_ENABLED=0
     ldflags:
-      - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
+      - -s -w -X github.com/NextChapterSoftware/chissl/share.BuildVersion={{.Version}}
     flags:
       - -trimpath
     goos:
+      - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
+      # 386 removed
+      - arm
+    goarm:
+      - 7
 
 
 archives:
-  - format: binary
+  - id: client_bins
+    builds:
+      - client
+    format: binary
+    files:
+      - none*
+  - id: server_bins
+    builds:
+      - server
+    format: binary
     files:
       - none*
   - id: homebrew
+    builds:
+      - client
     name_template: >-
       {{- .ProjectName }}_
       {{- title .Os }}_
@@ -74,7 +98,7 @@ changelog:
 
 brews:
   - name: chissl
-    homepage: "https://github.com/unblocked/chissl"
+    homepage: "https://github.com/NextChapterSoftware/chissl"
     directory: Formula
     description: "HTTPS reverse tunnel server/client"
     license: "MIT"
@@ -85,14 +109,14 @@ brews:
     install: |
       bin.install "chissl"
     repository:
-      owner: unblocked
+      owner: NextChapterSoftware
       name: chissl
       branch: brew-releases/{{ .Version }}
       token: "{{ .Env.GITHUB_TOKEN }}"
       pull_request:
         enabled: true
         base:
-          owner: unblocked
+          owner: NextChapterSoftware
           name: chissl
           branch: main
     commit_author:
