@@ -112,7 +112,7 @@ brews:
       owner: unblocked
       name: chissl
       branch: brew-releases/{{ .Version }}
-      token: "{{ .Env.GITHUB_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
       pull_request:
         enabled: true
         base:
