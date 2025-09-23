@@ -11,8 +11,6 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
-  pull_request_review:
-    types: [submitted]
   workflow_dispatch: {}
 
 permissions:
@@ -25,21 +23,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pr-allow:
+    name: Check PR allow
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const evt = context.eventName;
+            if (evt !== 'pull_request') {
+              core.setOutput('allowed', 'true');
+              core.setOutput('reason', 'not-a-pr');
+              return;
+            }
+            const pr = context.payload.pull_request;
+            const sameRepo = pr.head.repo.full_name === pr.base.repo.full_name;
+            let approved = false;
+            try {
+              const { owner, repo } = context.repo;
+              const number = pr.number;
+              const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: number });
+              approved = reviews.some(r => r.state === 'APPROVED');
+            } catch (e) {
+              core.info('Failed to list reviews: ' + e.message);
+            }
+            const allowed = sameRepo || approved;
+            core.setOutput('allowed', allowed ? 'true' : 'false');
+            core.setOutput('reason', allowed ? (sameRepo ? 'same-repo' : 'approved') : 'fork-unapproved');
   build:
     runs-on: ubuntu-latest
-    if: >-
-      ${{
-        github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-        (github.event_name == 'pull_request' &&
-          (github.event.pull_request.author_association == 'OWNER' ||
-           github.event.pull_request.author_association == 'MEMBER' ||
-           github.event.pull_request.author_association == 'COLLABORATOR')) ||
-        (github.event_name == 'pull_request_review' &&
-          github.event.review.state == 'approved' &&
-          (github.event.review.author_association == 'OWNER' ||
-           github.event.review.author_association == 'MEMBER' ||
-           github.event.review.author_association == 'COLLABORATOR'))
-      }}
+    needs: pr-allow
+    if: needs.pr-allow.outputs.allowed == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
