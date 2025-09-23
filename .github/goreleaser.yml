@@ -71,6 +71,8 @@ archives:
     files:
       - none*
   - id: homebrew
+    builds:
+      - client
     name_template: >-
       {{- .ProjectName }}_
       {{- title .Os }}_
