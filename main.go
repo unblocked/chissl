@@ -16,27 +16,13 @@ import (
 	"github.com/NextChapterSoftware/chissl/share/cos"
 )
 
-var help = `
-  Usage: chissl [command] [--help]
-
-  Version: ` + chshare.BuildVersion + ` (` + runtime.Version() + `)
-
-  Commands:
-    server - runs chissl in server mode
-    client - runs chissl in client mode
-
-  Read more:
-    https://github.com/NextChapterSoftware/chissl
-
-`
-
 func main() {
 
 	version := flag.Bool("version", false, "")
 	v := flag.Bool("v", false, "")
 	flag.Bool("help", false, "")
 	flag.Bool("h", false, "")
-	flag.Usage = func() {}
+	flag.Usage = func() { fmt.Print(topHelp()); os.Exit(0) }
 	flag.Parse()
 
 	if *version || *v {
@@ -58,7 +44,7 @@ func main() {
 	case "client":
 		client(args)
 	default:
-		fmt.Print(help)
+		fmt.Print(topHelp())
 		os.Exit(0)
 	}
 }

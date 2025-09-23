@@ -35,7 +35,7 @@ func server(args []string) {
 	flags.StringVar(&config.TLS.Key, "tls-key", "", "")
 	flags.StringVar(&config.TLS.Cert, "tls-cert", "", "")
 	flags.Var(multiFlag{&config.TLS.Domains}, "tls-domain", "")
-	flags.StringVar(&config.TLS.CA, "tls-ca", "")
+	flags.StringVar(&config.TLS.CA, "tls-ca", "", "TLS CA certificate file (PEM)")
 
 	// Database configuration
 	flags.StringVar(&config.Database.Type, "db-type", "sqlite", "Database type (sqlite or postgres)")

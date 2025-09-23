@@ -19,7 +19,7 @@ jobs:
     name: Test
     strategy:
       matrix:
-        go-version: [1.21.x]
+        go-version: [1.23.x]
         platform: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
     if: >-
@@ -114,7 +114,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.21.x
+          go-version: 1.23.x
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Build all client binaries
@@ -129,7 +129,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.21.x
+          go-version: 1.23.x
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Install cross toolchains and libc headers (Linux CGO)
