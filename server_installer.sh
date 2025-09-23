@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# This script downloads the chiSSL binary for your current platform from Github artifacts and installs it.
-# It also creates the necessary systemd service scripts and initial configuration file.
-# NOTE: This script generates a randomized admin password for chiSSL which can be found at /etc/chissl.json.
+# This script downloads and installs the chiSSL server binary for your platform from GitHub Releases.
+# It creates a systemd service and starts the server with --auth and --dashboard enabled.
+# NOTE: The script will prompt for an admin password (or auto-generate one) and pass it via --auth.
 #
 #
 # Usage:
@@ -18,10 +18,10 @@
 #   ./script_name.sh subdomain.example.com 8443
 #
 # To download and execute this script from a GitHub public repository in a single line:
-#   bash <(curl -s https://raw.githubusercontent.com/NextChapterSoftware/chissl/v1.1/server_installer.sh) <domain_name> [port]
+#   bash <(curl -fsSL https://raw.githubusercontent.com/unblocked/chissl/v2.0/server_installer.sh) <domain_name> [port] [admin_password]
 
-# Target chiSSL version
-LATEST_VERSION="1.2"
+# Target chiSSL version tag
+VERSION_TAG="v2.0"
 
 # Function to display usage
 usage() {
@@ -57,9 +57,33 @@ fi
 FQDN=$1
 PORT=${2:-"443"}
 
+# Admin user/password handling
+ADMIN_USER=${ADMIN_USER:-admin}
+ADMIN_PASS="${3-}"
+if [ -z "$ADMIN_PASS" ]; then
+    if [ -t 0 ]; then
+        # Prompt if interactive
+        read -s -p "Enter admin password (leave empty to auto-generate): " ADMIN_PASS_INPUT || true
+        echo
+        if [ -n "$ADMIN_PASS_INPUT" ]; then
+            ADMIN_PASS="$ADMIN_PASS_INPUT"
+        fi
+    fi
+fi
+# Auto-generate if still empty
+if [ -z "$ADMIN_PASS" ]; then
+    ADMIN_PASS=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
+fi
+
 # Validate the domain name
 if ! is_valid_fqdn "$FQDN"; then
     echo "Error: $FQDN is not a valid fully qualified domain name (FQDN)."
+    exit 1
+fi
+
+# Only Linux is supported for server installer
+if [ "$OS" != "linux" ]; then
+    echo "This installer currently supports Linux only."
     exit 1
 fi
 
@@ -70,7 +94,7 @@ if ! is_valid_port "$PORT"; then
 fi
 
 # Define variables
-REPO_OWNER="NextChapterSoftware"
+REPO_OWNER="unblocked"
 REPO_NAME="chissl"
 BASE_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/v$LATEST_VERSION"
 INSTALL_PATH="/usr/local/bin/chissl"
@@ -107,31 +131,35 @@ case $ARCH in
     ;;
 esac
 
-# Construct the download URL
-ARCHIVE_NAME="${REPO_NAME}_${LATEST_VERSION}_${OS}_${ARCH}"
-DOWNLOAD_URL="$BASE_URL/$ARCHIVE_NAME"
-
-# Download the binary archive
-echo "Downloading $DOWNLOAD_URL" $DOWNLOAD_URL
-sudo curl -L -o $INSTALL_PATH $DOWNLOAD_URL
-sudo chmod +x $INSTALL_PATH
-
-# Create default configuration file with a randomized password for admin
-echo "Creating /etc/chissl.json"
-sudo tee /etc/chissl.json > /dev/null <<EOL
-[
-  {
-    "username": "admin",
-    "password": "$ADMIN_PASS",
-    "addresses": [".*"],
-    "is_admin": true
-  }
-]
-EOL
-if [ $? -ne 0 ]; then
-    echo "Failed to create default /etc/chissl.json config file"
-    exit 1
+# Resolve server asset URL from GitHub release (robust to naming)
+API_URL="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION_TAG"
+AUTH_HEADER=()
+if [ -n "${GITHUB_TOKEN-}" ]; then AUTH_HEADER=( -H "Authorization: Bearer $GITHUB_TOKEN" ); fi
+URLS=$(curl -fsSL "${AUTH_HEADER[@]}" "$API_URL" | grep -oE '"browser_download_url": "[^"]+"' | cut -d '"' -f4)
+if [ -z "$URLS" ]; then
+  echo "Failed to query release assets for $VERSION_TAG from GitHub API"
+  exit 1
 fi
+if [ "$ARCH" = "386" ]; then
+  echo "Unsupported architecture for server: $ARCH"
+  exit 1
+fi
+SERVER_URL=$(echo "$URLS" | grep -Ei 'chissl[-_]?server' | grep -Ei 'linux' | grep -Ei "$ARCH" | head -n1)
+if [ -z "$SERVER_URL" ] && [ "$ARCH" = "armv7" ]; then
+  SERVER_URL=$(echo "$URLS" | grep -Ei 'chissl[-_]?server' | grep -Ei 'linux' | grep -Ei 'arm_?7' | head -n1)
+fi
+if [ -z "$SERVER_URL" ]; then
+  echo "Could not find a server binary asset for linux/$ARCH in release $VERSION_TAG"
+  echo "$URLS" | sed 's/^/  /'
+  exit 1
+fi
+
+TMP_BIN=$(mktemp)
+echo "Downloading $SERVER_URL"
+curl -fL "$SERVER_URL" -o "$TMP_BIN"
+sudo install -m 0755 "$TMP_BIN" "$INSTALL_PATH"
+rm -f "$TMP_BIN"
+
 
 # Create a systemd service file
 echo "Creating systemd service"
@@ -141,7 +169,7 @@ Description=Chissl Service
 After=network.target
 
 [Service]
-ExecStart=$INSTALL_PATH server --port $PORT --tls-domain $FQDN --authfile /etc/chissl.json
+ExecStart=$INSTALL_PATH server -v --port $PORT --tls-domain $FQDN --auth "$ADMIN_USER:$ADMIN_PASS" --dashboard
 Restart=always
 User=root
 
@@ -178,9 +206,9 @@ fi
 echo
 echo "============================================================================================="
 echo "$SERVICE_NAME installation and setup complete."
-echo "Admin user: admin"
+echo "Admin user: $ADMIN_USER"
 echo "Admin password: $ADMIN_PASS"
-echo "All user credentials stored at /etc/chissl.json"
-echo "You can add additional users by editing /etc/chissl.json file or using the chiSSL rest API"
-echo "chiSSL is watching /etc/chissl.json and will auto-reload upon any changes"
+echo "Dashboard: https://$FQDN:$PORT/dashboard"
+echo "Server started with: $INSTALL_PATH server -v --port $PORT --tls-domain $FQDN --auth '$ADMIN_USER:******' --dashboard"
+echo "Manage users and settings via the dashboard or the REST API."
 echo "============================================================================================="

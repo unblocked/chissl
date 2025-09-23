@@ -4,7 +4,7 @@ Modern HTTPS reverse tunnels with live traffic capture and a simple dashboard.
 
 ![Dashboard Overview](docs/assets/screenshots/dashboard-main.png)
 
-## Docs 
+## Docs
 https://unblocked.github.io/chissl/
 
 ## Highlights
@@ -61,8 +61,33 @@ This lets you manage tunnel settings locally without repeating flags.
 - Docs site: https://unblocked.github.io/chissl/
 
 ## Install
-- Download binaries from Releases: https://github.com/unblocked/chissl/releases
-- Or build from source (Go 1.21+, CGO enabled):
+- macOS/Linux via Homebrew (client):
+```bash
+brew install unblocked/chissl/chissl
+# or
+brew tap unblocked/chissl && brew install chissl
+```
+
+- Server (Linux) one-liner:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/unblocked/chissl/v2.0/server_installer.sh) FQDN_HERE [port] [admin_password]
+```
+
+This will install the chissl server binary and start it with:
+
+```bash
+./chissl server -v \
+  --tls-domain FQDN_HERE \
+  --auth ADMIN_USER:PASSWORD_SUPPLIED_BY_USER \
+  --dashboard
+```
+
+- Binaries (Releases):
+  https://github.com/unblocked/chissl/releases
+
+- Or build from source (Go 1.23+ recommended):
+
 ```bash
 go build ./...
 ```

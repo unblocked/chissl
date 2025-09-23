@@ -3,16 +3,45 @@ on:
     branches: [ main ]
     tags:
       - 'v*'
-  pull_request_review:
-    types: [submitted]
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch: {}
 name: CI
 jobs:
+  pr-allow:
+    name: Check PR allow
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const evt = context.eventName;
+            if (evt !== 'pull_request') {
+              core.setOutput('allowed', 'true');
+              core.setOutput('reason', 'not-a-pr');
+              return;
+            }
+            const pr = context.payload.pull_request;
+            const sameRepo = pr.head.repo.full_name === pr.base.repo.full_name;
+            let approved = false;
+            try {
+              const { owner, repo } = context.repo;
+              const number = pr.number;
+              const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: number });
+              approved = reviews.some(r => r.state === 'APPROVED');
+            } catch (e) {
+              core.info('Failed to list reviews: ' + e.message);
+            }
+            const allowed = sameRepo || approved;
+            core.setOutput('allowed', allowed ? 'true' : 'false');
+            core.setOutput('reason', allowed ? (sameRepo ? 'same-repo' : 'approved') : 'fork-unapproved');
   # ================
   # TEST JOB
-  #   runs on every push and PR
+  #   runs on every push and allowed PR
   #   runs 2x3 times (see matrix)
   # ================
   test:
@@ -22,33 +51,14 @@ jobs:
         go-version: [1.23.x]
         platform: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
-    if: >-
-      ${{
-        github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-        (github.event_name == 'pull_request' &&
-          (github.event.pull_request.author_association == 'OWNER' ||
-           github.event.pull_request.author_association == 'MEMBER' ||
-           github.event.pull_request.author_association == 'COLLABORATOR')) ||
-        (github.event_name == 'pull_request_review' &&
-          github.event.review.state == 'approved' &&
-          (github.event.review.author_association == 'OWNER' ||
-           github.event.review.author_association == 'MEMBER' ||
-           github.event.review.author_association == 'COLLABORATOR'))
-      }}
+    needs: pr-allow
+    if: needs.pr-allow.outputs.allowed == 'true'
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
-      - name: Checkout PR head (on approved review)
-        if: github.event_name == 'pull_request_review'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-      - name: Checkout code (push/tags/manual)
-        if: github.event_name != 'pull_request_review'
+      - name: Checkout code
         uses: actions/checkout@v4
       - name: Build (CGO)
         shell: bash

@@ -98,7 +98,7 @@ changelog:
 
 brews:
   - name: chissl
-    homepage: "https://github.com/NextChapterSoftware/chissl"
+    homepage: "https://github.com/unblocked/chissl"
     directory: Formula
     description: "HTTPS reverse tunnel server/client"
     license: "MIT"
@@ -109,14 +109,14 @@ brews:
     install: |
       bin.install "chissl"
     repository:
-      owner: NextChapterSoftware
+      owner: unblocked
       name: chissl
       branch: brew-releases/{{ .Version }}
       token: "{{ .Env.GITHUB_TOKEN }}"
       pull_request:
         enabled: true
         base:
-          owner: NextChapterSoftware
+          owner: unblocked
           name: chissl
           branch: main
     commit_author:
