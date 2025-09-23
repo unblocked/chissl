@@ -57,8 +57,6 @@ jobs:
           distribution: goreleaser
           version: latest
           args: release --verbose --skip-publish --skip-sign --snapshot --clean --config .github/goreleaser.yml
-        env:
-          CGO_ENABLED: 1
 
   deny:
     name: Deny unauthorized

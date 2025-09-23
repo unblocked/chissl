@@ -25,12 +25,15 @@ builds:
     overrides:
       - goos: linux
         goarch: arm
+        goarm: 7
         env:
           - CC=arm-linux-gnueabihf-gcc
+          - CGO_ENABLED=1
       - goos: linux
         goarch: arm64
         env:
           - CC=aarch64-linux-gnu-gcc
+          - CGO_ENABLED=1
 
   - id: client
     main: .
