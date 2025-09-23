@@ -5,48 +5,24 @@
 class Chissl < Formula
   desc "HTTPS reverse tunnel server/client"
   homepage "https://github.com/unblocked/chissl"
-  version "1.2"
+  version "2.0"
   license "MIT"
+  depends_on :macos
 
-  on_macos do
-    url "https://github.com/unblocked/chissl/releases/download/v1.2/chissl_Darwin_all.zip"
-    sha256 "624caa62e71c102d0d238655f98738d4cd0f014f28e38bebd38320a3b3c8d79c"
+  on_intel do
+    url "https://github.com/unblocked/chissl/releases/download/v2.0/chissl_Darwin_x86_64.zip"
+    sha256 "19c071dbd02f2de5b8ebe05b5b62f7a0b833becf9e6a2289feee3d7b3be1949a"
 
     def install
       bin.install "chissl"
     end
   end
+  on_arm do
+    url "https://github.com/unblocked/chissl/releases/download/v2.0/chissl_Darwin_arm64.zip"
+    sha256 "412ce1ca1fd96496460159711cc9f6a44a21679ee804badf7b721909197e5ce1"
 
-  on_linux do
-    on_intel do
-      if Hardware::CPU.is_64_bit?
-        url "https://github.com/unblocked/chissl/releases/download/v1.2/chissl_Linux_x86_64.zip"
-        sha256 "393b7bf17c422f95041221bd7543bc4e96032661cffa5e641b57851be5bc429b"
-
-        def install
-          bin.install "chissl"
-        end
-      end
-    end
-    on_arm do
-      if !Hardware::CPU.is_64_bit?
-        url "https://github.com/unblocked/chissl/releases/download/v1.2/chissl_Linux_armv6.zip"
-        sha256 "28d1ed2beeb172930ffe23c14c83707925cd5c0f20be274cc9fe5987a87de1be"
-
-        def install
-          bin.install "chissl"
-        end
-      end
-    end
-    on_arm do
-      if Hardware::CPU.is_64_bit?
-        url "https://github.com/unblocked/chissl/releases/download/v1.2/chissl_Linux_arm64.zip"
-        sha256 "e4964566b880b23c69052060765bce2639ce46e4e98fc3baf508b6e379649c2a"
-
-        def install
-          bin.install "chissl"
-        end
-      end
+    def install
+      bin.install "chissl"
     end
   end
 end
