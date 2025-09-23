@@ -114,7 +114,7 @@ brews:
       branch: brew-releases/{{ .Version }}
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
       pull_request:
-        enabled: true
+        enabled: false
         base:
           owner: unblocked
           name: chissl

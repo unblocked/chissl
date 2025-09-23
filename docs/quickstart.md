@@ -4,7 +4,7 @@ Get up and running with chiSSL in minutes. Install the client (for creating tunn
 
 ---
 
-## Client install (macOS/Linux via Homebrew)
+## Client install (macOS via Homebrew)
 
 ```bash
 # Optional: remove an older Homebrew install first

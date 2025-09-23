@@ -60,7 +60,7 @@ brews:
       branch: brew-releases/{{ .Version }}
       token: "{{ .Env.GITHUB_TOKEN }}"
       pull_request:
-        enabled: true
+        enabled: false
         base:
           owner: unblocked
           name: chissl
