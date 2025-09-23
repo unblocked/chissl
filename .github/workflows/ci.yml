@@ -94,6 +94,7 @@ jobs:
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
     strategy:
+      max-parallel: 1
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -159,12 +160,25 @@ jobs:
             const tag = context.ref.replace('refs/tags/', '');
             core.info(`Publishing release for tag ${tag}`);
             try {
-              const rel = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
-              if (rel && rel.data && rel.data.draft) {
-                await github.rest.repos.updateRelease({ owner, repo, release_id: rel.data.id, draft: false });
-                core.info('Release published (draft=false)');
-              } else {
-                core.info('Release already published or not found as draft');
+              // getReleaseByTag does NOT return drafts; list and filter instead
+              const releases = await github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
+              const matches = releases.filter(r => r.tag_name === tag);
+              if (matches.length === 0) {
+                core.setFailed(`No release found for ${tag} (did GoReleaser create it?)`);
+                return;
+              }
+              let changed = 0;
+              for (const r of matches) {
+                if (r.draft) {
+                  await github.rest.repos.updateRelease({ owner, repo, release_id: r.id, draft: false });
+                  changed++;
+                  core.info(`Published release id=${r.id}`);
+                } else {
+                  core.info(`Release id=${r.id} already published`);
+                }
+              }
+              if (changed === 0) {
+                core.info('All matching releases already published');
               }
             } catch (e) {
               core.setFailed(`Failed to publish release for ${tag}: ${e.message}`);
