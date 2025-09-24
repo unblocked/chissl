@@ -1,9 +1,11 @@
 version: 2
 
 builds:
-  - id: darwin
+  - id: client
+    main: .
+    binary: chissl
     env:
-      - CGO_ENABLED=1
+      - CGO_ENABLED=0
     ldflags:
       - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
     flags:
@@ -15,10 +17,9 @@ builds:
       - arm64
 
 archives:
-  - format: binary
-    files:
-      - none*
   - id: homebrew
+    builds:
+      - client
     name_template: >-
       {{- .ProjectName }}_
       {{- title .Os }}_
@@ -59,7 +60,7 @@ brews:
       owner: unblocked
       name: chissl
       branch: brew-releases/{{ .Version }}
-      token: "{{ .Env.GITHUB_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
       pull_request:
         enabled: false
         base:

@@ -1,9 +1,43 @@
 version: 2
 
 builds:
-  - id: linux_windows
+  - id: server
+    main: .
+    binary: chissl-server
     env:
       - CGO_ENABLED=1
+    ldflags:
+      - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
+    flags:
+      - -trimpath
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
+    tags:
+      - server
+    overrides:
+      - goos: linux
+        goarch: arm
+        goarm: 7
+        env:
+          - CC=arm-linux-gnueabihf-gcc
+          - CGO_ENABLED=1
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=aarch64-linux-gnu-gcc
+          - CGO_ENABLED=1
+
+  - id: client
+    main: .
+    binary: chissl
+    env:
+      - CGO_ENABLED=0
     ldflags:
       - -s -w -X github.com/unblocked/chissl/share.BuildVersion={{.Version}}
     flags:
@@ -17,22 +51,17 @@ builds:
       - arm
     goarm:
       - 7
-    overrides:
-      - goos: linux
-        goarch: arm
-        goarm: 7
-        env:
-          - CC=arm-linux-gnueabihf-gcc
-      - goos: linux
-        goarch: arm64
-        env:
-          - CC=aarch64-linux-gnu-gcc
 
 archives:
-  - format: binary
+  - id: server_bins
+    builds:
+      - server
+    format: binary
     files:
       - none*
   - id: homebrew
+    builds:
+      - client
     name_template: >-
       {{- .ProjectName }}_
       {{- title .Os }}_
