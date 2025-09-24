@@ -29,7 +29,7 @@ archives:
     format: zip
 
 universal_binaries:
-  - replace: true
+  - replace: false
 
 release:
   draft: true
