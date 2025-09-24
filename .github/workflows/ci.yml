@@ -85,32 +85,26 @@ jobs:
   #   runs after a success test
   #   only runs on push "v*" tag
   # ================
-  release_binaries:
+  release_linuxwin:
     permissions:
       contents: write
       pull-requests: write
       repository-projects: write
-    name: Release Binaries
+    name: Release Binaries (Linux/Windows)
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
-    strategy:
-      max-parallel: 1
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - name: Check out code
         uses: actions/checkout@v4
 
       - name: Install cross toolchains and libc headers (Linux CGO)
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu \
             libc6-dev-armhf-cross libc6-dev-arm64-cross \
             linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross
-
 
       - name: Install Go
         uses: actions/setup-go@v5
@@ -119,7 +113,6 @@ jobs:
           check-latest: true
 
       - name: Run GoReleaser [Linux+Windows]
-        if: runner.os == 'Linux'
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
@@ -131,9 +124,26 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           CGO_ENABLED: 1
 
+  release_darwin:
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    name: Release Binaries (Darwin)
+    needs: release_linuxwin
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.x
+          check-latest: true
 
       - name: Run GoReleaser [Darwin]
-        if: runner.os == 'macOS'
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
@@ -146,7 +156,7 @@ jobs:
 
   finalize_release:
     name: Publish GitHub Release (mark latest)
-    needs: release_binaries
+    needs: release_darwin
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -167,18 +177,19 @@ jobs:
                 core.setFailed(`No release found for ${tag} (did GoReleaser create it?)`);
                 return;
               }
-              let changed = 0;
-              for (const r of matches) {
-                if (r.draft) {
-                  await github.rest.repos.updateRelease({ owner, repo, release_id: r.id, draft: false });
-                  changed++;
-                  core.info(`Published release id=${r.id}`);
-                } else {
-                  core.info(`Release id=${r.id} already published`);
-                }
+              // Choose a canonical release (most assets, then most recently updated)
+              matches.sort((a,b) => (b.assets?.length||0) - (a.assets?.length||0) || new Date(b.updated_at) - new Date(a.updated_at));
+              const primary = matches[0];
+              core.info(`Primary release selected id=${primary.id}, assets=${primary.assets?.length||0}`);
+              if (primary.draft) {
+                await github.rest.repos.updateRelease({ owner, repo, release_id: primary.id, draft: false });
+                core.info(`Published primary release id=${primary.id}`);
+              } else {
+                core.info(`Primary release already published id=${primary.id}`);
               }
-              if (changed === 0) {
-                core.info('All matching releases already published');
+              const others = matches.slice(1);
+              if (others.length > 0) {
+                core.warning(`There are ${others.length} additional releases with the same tag still in draft; leaving them as-is.`);
               }
             } catch (e) {
               core.setFailed(`Failed to publish release for ${tag}: ${e.message}`);
