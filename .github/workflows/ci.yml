@@ -143,16 +143,33 @@ jobs:
           go-version: 1.23.x
           check-latest: true
 
-      - name: Run GoReleaser [Darwin]
+      - name: Run GoReleaser [Darwin] (build only, no publish)
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
           version: v2.4.0
-          args: release --verbose --config .github/goreleaser.darwin.yml
+          args: release --verbose --skip=publish --config .github/goreleaser.darwin.yml
         env:
           GORELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Upload macOS assets to existing release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "Uploading darwin assets to release ${TAG}"
+          ls -l dist || true
+          # Upload all darwin zip assets; --clobber to overwrite if re-run
+          shopt -s nullglob
+          files=(dist/*Darwin*.zip)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No darwin zip assets found in dist/"
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
 
   finalize_release:
     name: Publish GitHub Release (mark latest)
