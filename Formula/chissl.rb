@@ -5,21 +5,21 @@
 class Chissl < Formula
   desc "HTTPS reverse tunnel server/client"
   homepage "https://github.com/unblocked/chissl"
-  version "2.0"
+  version "2.1"
   license "MIT"
   depends_on :macos
 
   on_intel do
-    url "https://github.com/unblocked/chissl/releases/download/v2.0/chissl_Darwin_x86_64.zip"
-    sha256 "19c071dbd02f2de5b8ebe05b5b62f7a0b833becf9e6a2289feee3d7b3be1949a"
+    url "https://github.com/unblocked/chissl/releases/download/v2.1/chissl_Darwin_x86_64.zip"
+    sha256 "57fd05cb37f9c44e890ba4764a285421036e7db82e4ff173e7d4945ef5ed5f45"
 
     def install
       bin.install "chissl"
     end
   end
   on_arm do
-    url "https://github.com/unblocked/chissl/releases/download/v2.0/chissl_Darwin_arm64.zip"
-    sha256 "412ce1ca1fd96496460159711cc9f6a44a21679ee804badf7b721909197e5ce1"
+    url "https://github.com/unblocked/chissl/releases/download/v2.1/chissl_Darwin_arm64.zip"
+    sha256 "3c3b80429297935b0c41971202b8cc54072f100659a0b86bf33f279fd523494b"
 
     def install
       bin.install "chissl"
