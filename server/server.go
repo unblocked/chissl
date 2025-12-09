@@ -437,16 +437,49 @@ func (s *Server) StartContext(ctx context.Context, host, port string) error {
 	if s.listeners != nil && s.config.TlsConf != nil {
 		s.listeners.UpdateTLSConfig(s.config.TlsConf)
 		s.Debugf("Updated listener manager with TLS config")
-		// Now restore active listeners from database with proper TLS config
-		s.restoreListeners()
 	}
-	// Update multicast manager with TLS and restore enabled multicasts
+	// Update multicast manager with TLS config
 	if s.multicasts != nil && s.config.TlsConf != nil {
 		s.multicasts.UpdateTLSConfig(s.config.TlsConf)
 		s.Debugf("Updated multicast manager with TLS config")
-		s.restoreMulticasts()
-
 	}
+
+	// Restore listeners/multicasts after a short delay to ensure:
+	// 1. HTTP-01 challenge server on :80 is ready
+	// 2. Main HTTPS server is accepting connections
+	// 3. TLS cert can be fetched on first connection if needed
+	go func() {
+		// Wait for HTTP-01 server and main server to be ready
+		time.Sleep(3 * time.Second)
+
+		// Pre-warm TLS certificate (non-blocking, with timeout)
+		if s.config.TlsConf != nil && len(s.config.TLS.Domains) > 0 {
+			s.Infof("Pre-warming TLS certificate for domains: %v", s.config.TLS.Domains)
+			done := make(chan error, 1)
+			go func() {
+				done <- s.prewarmTLSCert()
+			}()
+			select {
+			case err := <-done:
+				if err != nil {
+					s.Infof("Warning: TLS certificate pre-warm failed: %v (will retry on first connection)", err)
+				} else {
+					s.Infof("TLS certificate ready")
+				}
+			case <-time.After(60 * time.Second):
+				s.Infof("Warning: TLS certificate pre-warm timed out (will retry on first connection)")
+			}
+		}
+
+		// Now restore active listeners from database with proper TLS config
+		if s.listeners != nil && s.config.TlsConf != nil {
+			s.restoreListeners()
+		}
+		// Restore enabled multicasts
+		if s.multicasts != nil && s.config.TlsConf != nil {
+			s.restoreMulticasts()
+		}
+	}()
 	h := http.Handler(http.HandlerFunc(s.handleClientHandler))
 	if s.Debug {
 		o := requestlog.DefaultOptions

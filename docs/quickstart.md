@@ -43,8 +43,10 @@ This will:
 ```
 
 Notes:
+- **Port 80 and 443 must be open** - Let's Encrypt uses HTTP-01 validation on port 80 to issue certificates. The server will automatically start an HTTP listener on port 80 for this purpose.
 - If you omit the password argument, the installer will prompt for it.
 - If you need to reconfigure, edit the systemd service and restart it (sudo systemctl daemon-reload && sudo systemctl restart chissl).
+- **Troubleshooting certs**: If certificate renewal fails, try clearing the cache: `rm -rf ~/.cache/chisel/` (or `/root/.cache/chisel/` if running as root).
 
 Manual download option (no installer):
 - Download the Linux server binary that matches your architecture from Releases:
