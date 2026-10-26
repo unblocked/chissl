@@ -55,6 +55,11 @@ builds:
       - arm
     goarm:
       - 7
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: darwin
+        goarch: arm
 
 
 archives:
