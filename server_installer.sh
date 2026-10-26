@@ -96,10 +96,12 @@ fi
 # Define variables
 REPO_OWNER="unblocked"
 REPO_NAME="chissl"
-BASE_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/v$LATEST_VERSION"
 INSTALL_PATH="/usr/local/bin/chissl"
 SERVICE_NAME="chissl"
-ADMIN_PASS=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 13)
+
+# Encryption key for stored secrets (AI provider keys). Generated per install;
+# without it the server falls back to a built-in default key and logs a warning.
+ENC_KEY=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)
 
 # Detect OS and architecture
 OS=$(uname | tr '[:upper:]' '[:lower:]')
@@ -169,6 +171,7 @@ Description=Chissl Service
 After=network.target
 
 [Service]
+Environment=CHISSL_ENCRYPTION_KEY=$ENC_KEY
 ExecStart=$INSTALL_PATH server -v --port $PORT --tls-domain $FQDN --auth "$ADMIN_USER:$ADMIN_PASS" --dashboard
 Restart=always
 User=root
@@ -176,6 +179,9 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOL
+
+# The unit embeds the admin credential, so restrict it to root
+sudo chmod 600 /etc/systemd/system/$SERVICE_NAME.service
 
 if [ $? -ne 0 ]; then
     echo "Failed to create /etc/systemd/system/$SERVICE_NAME.service script"

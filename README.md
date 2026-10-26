@@ -76,7 +76,7 @@ brew install unblocked/chissl/chissl
 - Server (Linux) one-liner:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/unblocked/chissl/v2.0/server_installer.sh) FQDN_HERE [port] [admin_password]
+bash <(curl -fsSL https://raw.githubusercontent.com/unblocked/chissl/main/server_installer.sh) FQDN_HERE [port] [admin_password]
 ```
 
 This will install the chissl server binary and start it with:
