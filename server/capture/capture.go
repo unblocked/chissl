@@ -113,7 +113,7 @@ func NewService(maxEvents, maxBytes int) *Service {
 	// initialize subscribers map
 	s.subs = make(map[string]map[chan Event]struct{})
 	if s.persist {
-		_ = os.MkdirAll(s.dir, 0o755)
+		_ = os.MkdirAll(s.dir, 0o700)
 		go s.cleanupLoop()
 	}
 	// Load existing persisted data on startup if persistence is enabled
@@ -196,18 +196,41 @@ func (s *Service) ring(tunnelID string, maxEvents int) *Ring {
 	return r
 }
 
+// safePath joins the given path segments under the capture root directory.
+// Each segment must be a single path element (no separators, "." or ".."),
+// and the resulting path must remain inside the capture directory.
+func (s *Service) safePath(segments ...string) (string, error) {
+	for _, seg := range segments {
+		if seg == "" || seg == "." || seg == ".." || strings.ContainsAny(seg, `/\`) || filepath.Base(seg) != seg {
+			return "", fmt.Errorf("invalid path segment: %q", seg)
+		}
+	}
+	root := filepath.Clean(s.dir)
+	full := filepath.Clean(filepath.Join(append([]string{root}, segments...)...))
+	if !strings.HasPrefix(full, root+string(os.PathSeparator)) {
+		return "", errors.New("path escapes capture directory")
+	}
+	return full, nil
+}
+
 // appendJSONL appends event as a JSON line into per-connection rotating file
 func (s *Service) appendJSONL(tunnelID string, e Event) error {
 	if e.ConnID == "" {
 		return errors.New("missing connID")
 	}
-	dir := filepath.Join(s.dir, tunnelID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	dir, err := s.safePath(tunnelID)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	// current file
-	path := filepath.Join(dir, fmt.Sprintf("%s.log", e.ConnID))
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	path, err := s.safePath(tunnelID, fmt.Sprintf("%s.log", e.ConnID))
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
@@ -225,7 +248,7 @@ func (s *Service) appendJSONL(tunnelID string, e Event) error {
 				}
 			}
 			// reopen fresh file
-			f, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			f, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 			if err != nil {
 				return err
 			}
@@ -241,7 +264,10 @@ func (s *Service) appendJSONL(tunnelID string, e Event) error {
 
 // ListConnections returns known connection IDs for a tunnel based on persisted files
 func (s *Service) ListConnections(tunnelID string) ([]string, error) {
-	dir := filepath.Join(s.dir, tunnelID)
+	dir, err := s.safePath(tunnelID)
+	if err != nil {
+		return nil, err
+	}
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -271,8 +297,14 @@ func (s *Service) ListConnections(tunnelID string) ([]string, error) {
 
 // LatestLogFile returns the latest file path for a given connection (base or highest rotated)
 func (s *Service) LatestLogFile(tunnelID, connID string) (string, error) {
-	dir := filepath.Join(s.dir, tunnelID)
-	base := filepath.Join(dir, connID+".log")
+	dir, err := s.safePath(tunnelID)
+	if err != nil {
+		return "", err
+	}
+	base, err := s.safePath(tunnelID, connID+".log")
+	if err != nil {
+		return "", err
+	}
 	if _, err := os.Stat(base); err == nil {
 		return base, nil
 	}

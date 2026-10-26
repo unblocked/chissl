@@ -19,6 +19,7 @@ import (
 	"github.com/NextChapterSoftware/chissl/share/database"
 	"github.com/NextChapterSoftware/chissl/share/settings"
 	"github.com/NextChapterSoftware/chissl/share/tunnel"
+	"github.com/NextChapterSoftware/chissl/share/utils"
 )
 
 // ListenerManager manages HTTP listeners/proxies
@@ -317,6 +318,15 @@ func (lm *ListenerManager) createProxyHandler(config *database.Listener, tapFact
 			return
 		}
 
+		// Refuse to proxy to non-public targets (SSRF guard); the dialer below
+		// re-checks the resolved addresses at connect time.
+		if _, err := utils.ValidateOutboundURL(cleanTargetURL, false); err != nil {
+			errMsg := fmt.Sprintf("Target URL '%s' is not allowed: %v", cleanTargetURL, err)
+			fmt.Printf("URL validation error: %s\n", errMsg)
+			http.Error(w, errMsg, http.StatusBadGateway)
+			return
+		}
+
 		// Debug log the target URL
 		fmt.Printf("Parsed target URL: %s (scheme: %s, host: %s)\n", targetURL.String(), targetURL.Scheme, targetURL.Host)
 
@@ -349,7 +359,7 @@ func (lm *ListenerManager) createProxyHandler(config *database.Listener, tapFact
 
 		// Log the original request (before proxy)
 		if tap != nil {
-			reqData := fmt.Sprintf("=== ORIGINAL REQUEST ===\r\n")
+			reqData := "=== ORIGINAL REQUEST ===\r\n"
 			reqData += fmt.Sprintf("%s %s %s\r\n", r.Method, r.URL.String(), r.Proto)
 			reqData += fmt.Sprintf("Host: %s\r\n", r.Host)
 			for name, values := range r.Header {
@@ -360,7 +370,7 @@ func (lm *ListenerManager) createProxyHandler(config *database.Listener, tapFact
 			reqData += "\r\n"
 
 			// Also log the proxy request details
-			reqData += fmt.Sprintf("=== PROXY REQUEST ===\r\n")
+			reqData += "=== PROXY REQUEST ===\r\n"
 			reqData += fmt.Sprintf("%s %s %s\r\n", proxyReq.Method, proxyReq.URL.String(), proxyReq.Proto)
 			reqData += fmt.Sprintf("Host: %s\r\n", proxyReq.Host)
 			for name, values := range proxyReq.Header {
@@ -381,6 +391,9 @@ func (lm *ListenerManager) createProxyHandler(config *database.Listener, tapFact
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: false, // Verify upstream certificates
 			},
+			// Only dial vetted public addresses (blocks loopback, RFC1918,
+			// link-local/metadata, etc. and DNS-rebinding to them).
+			DialContext: utils.SafeDialContext(false),
 		}
 
 		client := &http.Client{
@@ -390,6 +403,11 @@ func (lm *ListenerManager) createProxyHandler(config *database.Listener, tapFact
 				// Allow up to 10 redirects
 				if len(via) >= 10 {
 					return fmt.Errorf("stopped after 10 redirects")
+				}
+				// Re-validate every redirect target so an upstream cannot bounce
+				// the proxy to an internal address.
+				if _, err := utils.ValidateOutboundURL(req.URL.String(), false); err != nil {
+					return fmt.Errorf("redirect to %s refused: %v", req.URL.String(), err)
 				}
 				// Log redirects for debugging
 				fmt.Printf("Following redirect: %s -> %s\n", via[len(via)-1].URL.String(), req.URL.String())
@@ -411,7 +429,7 @@ func (lm *ListenerManager) createProxyHandler(config *database.Listener, tapFact
 
 		// Log the upstream response first
 		if tap != nil {
-			respData := fmt.Sprintf("=== UPSTREAM RESPONSE ===\r\n")
+			respData := "=== UPSTREAM RESPONSE ===\r\n"
 			respData += fmt.Sprintf("HTTP/1.1 %d %s\r\n", resp.StatusCode, resp.Status)
 			for name, values := range resp.Header {
 				for _, value := range values {
@@ -684,7 +702,7 @@ func (lm *ListenerManager) createAIMockHandler(config *database.Listener, tapFac
 		// Log the response and update sent bytes
 		if tap != nil {
 			respData := fmt.Sprintf("HTTP/1.1 %d %s\r\n", code, http.StatusText(code))
-			respData += fmt.Sprintf("Content-Type: application/json\r\n")
+			respData += "Content-Type: application/json\r\n"
 			respData += fmt.Sprintf("Content-Length: %d\r\n", len(responseBody))
 			respData += "\r\n"
 			respData += string(responseBody)

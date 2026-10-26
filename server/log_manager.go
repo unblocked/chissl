@@ -32,7 +32,7 @@ type LogManager struct {
 
 // NewLogManager creates a new log manager
 func NewLogManager(logDir string) (*LogManager, error) {
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
@@ -56,7 +56,7 @@ func (lm *LogManager) openLogFile() error {
 	logPath := filepath.Join(lm.logDir, "chissl.log")
 
 	var err error
-	lm.logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	lm.logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return err
 	}
@@ -204,12 +204,19 @@ func (lm *LogManager) GetLogFiles() ([]string, error) {
 // ReadLogFile reads a specific log file
 func (lm *LogManager) ReadLogFile(filename string, lines int) ([]string, error) {
 	// Sanitize filename to prevent directory traversal
-	filename = filepath.Base(filename)
+	if filename == "" || filename == "." || filename == ".." ||
+		strings.ContainsAny(filename, `/\`) || filepath.Base(filename) != filename {
+		return nil, fmt.Errorf("invalid log file name")
+	}
 	if !strings.HasPrefix(filename, "chissl") || !strings.HasSuffix(filename, ".log") {
 		return nil, fmt.Errorf("invalid log file name")
 	}
 
-	filePath := filepath.Join(lm.logDir, filename)
+	logDir := filepath.Clean(lm.logDir)
+	filePath := filepath.Clean(filepath.Join(logDir, filename))
+	if !strings.HasPrefix(filePath, logDir+string(os.PathSeparator)) {
+		return nil, fmt.Errorf("invalid log file name")
+	}
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err

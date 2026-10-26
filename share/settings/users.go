@@ -175,6 +175,17 @@ func (u *UserIndex) WriteUsers() error {
 	return nil
 }
 
+// Redacted returns all users without password material.
+func (u *UserIndex) Redacted() []RedactedUser {
+	u.RLock()
+	defer u.RUnlock()
+	out := make([]RedactedUser, 0, len(u.inner))
+	for _, usr := range u.inner {
+		out = append(out, usr.Redacted())
+	}
+	return out
+}
+
 func (u *UserIndex) ToJSON() (string, error) {
 
 	data, err := json.MarshalIndent(maps.Values(u.inner), "", "  ")

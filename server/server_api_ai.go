@@ -11,10 +11,51 @@ import (
 
 	"github.com/NextChapterSoftware/chissl/server/capture"
 	"github.com/NextChapterSoftware/chissl/share/database"
-	"github.com/NextChapterSoftware/chissl/share/settings"
 	"github.com/NextChapterSoftware/chissl/share/tunnel"
+	"github.com/NextChapterSoftware/chissl/share/utils"
 	"github.com/google/uuid"
 )
+
+// aiProviderHTTPClient returns the HTTP client used for outbound calls to AI
+// provider endpoints. Provider endpoints are admin-configured, so private
+// addresses are permitted, but the dialer still connects only to the
+// addresses it resolved and vetted.
+func aiProviderHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			DialContext: utils.SafeDialContext(true),
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("stopped after 5 redirects")
+			}
+			if _, err := utils.ValidateOutboundURL(req.URL.String(), true); err != nil {
+				return fmt.Errorf("redirect to %s refused: %v", req.URL.String(), err)
+			}
+			return nil
+		},
+	}
+}
+
+// authorizeAIListenerAccess verifies that the caller owns the listener (or is
+// an admin). On failure it writes the error response and returns false.
+func (s *Server) authorizeAIListenerAccess(w http.ResponseWriter, r *http.Request, listenerID string) bool {
+	if s.db == nil {
+		http.Error(w, "Database not available", http.StatusServiceUnavailable)
+		return false
+	}
+	listener, err := s.db.GetListener(listenerID)
+	if err != nil || listener == nil {
+		http.Error(w, "AI listener not found", http.StatusNotFound)
+		return false
+	}
+	if !s.canUserAccessListener(r, listener) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
+}
 
 // AIProviderRequest represents the request payload for creating/updating AI providers
 type AIProviderRequest struct {
@@ -179,6 +220,13 @@ func (s *Server) handleCreateAIProvider(w http.ResponseWriter, r *http.Request) 
 		req.Temperature = 0.7
 	}
 
+	// Validate endpoint (http/https, host present, no embedded credentials)
+	if _, err := utils.ValidateOutboundURL(req.APIEndpoint, true); err != nil {
+		http.Error(w, "Invalid api_endpoint: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.APIEndpoint = strings.TrimSpace(req.APIEndpoint)
+
 	// Get current user
 	username := s.getUsernameFromContext(r.Context())
 	if username == "" {
@@ -246,7 +294,11 @@ func (s *Server) handleUpdateAIProvider(w http.ResponseWriter, r *http.Request, 
 		provider.Name = req.Name
 	}
 	if req.APIEndpoint != "" {
-		provider.APIEndpoint = req.APIEndpoint
+		if _, err := utils.ValidateOutboundURL(req.APIEndpoint, true); err != nil {
+			http.Error(w, "Invalid api_endpoint: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		provider.APIEndpoint = strings.TrimSpace(req.APIEndpoint)
 	}
 	if req.Model != "" {
 		provider.Model = req.Model
@@ -400,48 +452,14 @@ func (s *Server) testClaudeConnection(provider *database.AIProvider, apiKey stri
 
 // isRequestFromAdmin checks if the request is from an admin user
 func (s *Server) isRequestFromAdmin(r *http.Request) bool {
-	// Check for session cookie first
-	if cookie, err := r.Cookie("chissl_session"); err == nil && cookie.Value != "" {
-		username := cookie.Value
-		// Check if it's the CLI admin user
-		if s.config != nil && s.config.Auth != "" {
-			adminUser, _ := settings.ParseAuth(s.config.Auth)
-			if username == adminUser {
-				return true
-			}
-		}
-		// Check database users
-		if s.db != nil {
-			if user, err := s.db.GetUser(username); err == nil {
-				return user.IsAdmin
-			}
-		}
+	if s.isUserAdmin(r.Context()) {
+		return true
 	}
-
-	// Check for basic auth
-	username, password, ok := r.BasicAuth()
-	if !ok {
+	id, aerr := s.authenticateRequest(r)
+	if aerr != nil {
 		return false
 	}
-
-	// Check CLI admin
-	if s.config != nil && s.config.Auth != "" {
-		adminUser, adminPass := settings.ParseAuth(s.config.Auth)
-		if username == adminUser && password == adminPass {
-			return true
-		}
-	}
-
-	// Check database users
-	if s.db != nil {
-		if user, err := s.db.GetUser(username); err == nil {
-			if user.Password == password {
-				return user.IsAdmin
-			}
-		}
-	}
-
-	return false
+	return s.isUserAdmin(id.context(r.Context()))
 }
 
 // DefaultAIProviderConfig returns default configuration for different providers
@@ -517,6 +535,11 @@ func (s *Server) handleAIListenerChat(w http.ResponseWriter, r *http.Request) {
 	aiListener, err := s.db.GetAIListener(aiListenerID)
 	if err != nil {
 		http.Error(w, "AI listener not found", http.StatusNotFound)
+		return
+	}
+
+	// Ownership check: only the listener owner or an admin may chat
+	if !s.authorizeAIListenerAccess(w, r, aiListener.ListenerID) {
 		return
 	}
 
@@ -605,6 +628,12 @@ func (s *Server) handleCreateAIListener(w http.ResponseWriter, r *http.Request) 
 	username := s.getUsernameFromContext(r.Context())
 	if username == "" {
 		username = "admin" // fallback
+	}
+
+	// Check if user can use this port (same rule as regular listeners)
+	if available, errMsg := s.isPortAvailableForUser(req.Port, username); !available {
+		http.Error(w, errMsg, http.StatusForbidden)
+		return
 	}
 
 	// Create the regular listener first
@@ -851,6 +880,11 @@ func (s *Server) handleAIListenerVersions(w http.ResponseWriter, r *http.Request
 	}
 	listenerID := pathParts[3]
 
+	// Ownership check: only the listener owner or an admin may manage versions
+	if !s.authorizeAIListenerAccess(w, r, listenerID) {
+		return
+	}
+
 	switch r.Method {
 	case "GET":
 		s.handleGetAIListenerVersions(w, r, listenerID)
@@ -1090,16 +1124,6 @@ func (s *Server) updateAIResponseVersionError(version *database.AIResponseVersio
 	}
 }
 
-// updateAIListenerError updates the AI listener with an error status
-func (s *Server) updateAIListenerError(aiListener *database.AIListener, errorMsg string) {
-	aiListener.GenerationStatus = "failed"
-	aiListener.GenerationError = errorMsg
-	if err := s.db.UpdateAIListener(aiListener); err != nil {
-		s.Debugf("Failed to update AI listener error: %v", err)
-	}
-	s.Debugf("AI generation error for listener %s: %s", aiListener.ID, errorMsg)
-}
-
 // callAIForResponseGenerationWithVersion calls AI provider to generate responses for a specific version
 func (s *Server) callAIForResponseGenerationWithVersion(provider *database.AIProvider, version *database.AIResponseVersion) (string, error) {
 	// Decrypt the API key
@@ -1123,74 +1147,6 @@ func (s *Server) callAIForResponseGenerationWithVersion(provider *database.AIPro
 	default:
 		return "", fmt.Errorf("unsupported AI provider type: %s", provider.ProviderType)
 	}
-}
-
-// callAIForResponseGeneration calls the AI provider to generate mock responses
-func (s *Server) callAIForResponseGeneration(provider *database.AIProvider, aiListener *database.AIListener) (string, error) {
-	// Decrypt API key
-	apiKey, err := database.DecryptAPIKey(provider.APIKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to decrypt API key: %v", err)
-	}
-
-	// Build the system prompt
-	systemPrompt := s.buildSystemPrompt(aiListener.SystemPrompt)
-
-	// Build the user prompt with OpenAPI spec
-	userPrompt := s.buildUserPrompt(aiListener.OpenAPISpec)
-
-	// Call the appropriate AI provider
-	switch provider.ProviderType {
-	case "openai":
-		return s.callOpenAIForGeneration(provider, apiKey, systemPrompt, userPrompt)
-	case "claude":
-		return s.callClaudeForGeneration(provider, apiKey, systemPrompt, userPrompt)
-	default:
-		return "", fmt.Errorf("unsupported AI provider type: %s", provider.ProviderType)
-	}
-}
-
-// buildSystemPrompt creates the system prompt for AI response generation
-func (s *Server) buildSystemPrompt(customPrompt string) string {
-	basePrompt := `You are an expert API mock generator. Your task is to analyze OpenAPI specifications and generate realistic mock responses for each endpoint.
-
-Requirements:
-1. Generate a JSON object with the structure: {"paths": {...}}
-2. For each path and HTTP method, provide realistic example responses
-3. Include both success (2xx) and error (4xx, 5xx) responses when appropriate
-4. Use realistic data that matches the schema definitions
-5. Ensure response examples are consistent with the API's purpose
-6. Include proper HTTP status codes and content types
-
-Response format should match this structure:
-{
-  "paths": {
-    "/users": {
-      "GET": {
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "example": [{"id": 1, "name": "John Doe"}]
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}`
-
-	if customPrompt != "" {
-		basePrompt += "\n\nAdditional instructions: " + customPrompt
-	}
-
-	return basePrompt
-}
-
-// buildUserPrompt creates the user prompt with the OpenAPI specification
-func (s *Server) buildUserPrompt(openAPISpec string) string {
-	return fmt.Sprintf("Please analyze this OpenAPI specification and generate realistic mock responses:\n\n%s", openAPISpec)
 }
 
 // buildSystemPromptWithVersion creates the system prompt for version-based AI generation
@@ -1383,7 +1339,7 @@ func (s *Server) callOpenAIForGeneration(provider *database.AIProvider, apiKey, 
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	// Make the request
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := aiProviderHTTPClient(60 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to make request: %v", err)
@@ -1719,7 +1675,7 @@ func (s *Server) callOpenAIForConversation(provider *database.AIProvider, apiKey
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	// Make the request
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := aiProviderHTTPClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to make request: %v", err)
@@ -1790,6 +1746,11 @@ func (s *Server) handleForceRegenerateAIListener(w http.ResponseWriter, r *http.
 	}
 	listenerID := pathParts[3]
 
+	// Ownership check: only the listener owner or an admin may regenerate
+	if !s.authorizeAIListenerAccess(w, r, listenerID) {
+		return
+	}
+
 	// Get the AI listener
 	aiListener, err := s.db.GetAIListenerByListenerID(listenerID)
 	if err != nil {
@@ -1852,6 +1813,11 @@ func (s *Server) handleAIListenerDebug(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	listenerID := pathParts[3]
+
+	// Ownership check: only the listener owner or an admin may view debug info
+	if !s.authorizeAIListenerAccess(w, r, listenerID) {
+		return
+	}
 
 	// Get the AI listener
 	aiListener, err := s.db.GetAIListenerByListenerID(listenerID)

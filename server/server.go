@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -22,6 +21,7 @@ import (
 	"github.com/NextChapterSoftware/chissl/share/cio"
 	"github.com/NextChapterSoftware/chissl/share/cnet"
 	"github.com/NextChapterSoftware/chissl/share/database"
+	"github.com/NextChapterSoftware/chissl/share/session"
 	"github.com/NextChapterSoftware/chissl/share/settings"
 	"github.com/NextChapterSoftware/chissl/share/tunnel"
 	"github.com/gorilla/websocket"
@@ -93,6 +93,7 @@ type Server struct {
 	users        *settings.UserIndex
 	db           database.Database
 	auth0        *auth.Auth0Middleware
+	sessionStore session.Store
 	startTime    time.Time
 	// capture service
 	capture *capture.Service
@@ -306,6 +307,9 @@ func NewServer(c *Config) (*Server, error) {
 			_ = server.db.MarkStaleTunnelsClosed(2 * time.Minute)
 		}
 	}()
+
+	// Login sessions are opaque tokens stored server-side (DB when available)
+	server.sessionStore = session.NewStore(server.db)
 
 	// Initialize Auth0 if configured
 	if c.Auth0 != nil && c.Auth0.Enabled {
@@ -531,45 +535,24 @@ func (s *Server) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Permissions
 	p := string(password)
 	n := c.User()
 
-	// 1) Check --auth admin (always honored even if authfile changed later)
-	if s.config != nil && s.config.Auth != "" {
-		adminUser, adminPass := settings.ParseAuth(s.config.Auth)
-		if n == adminUser && p == adminPass {
-			u := &settings.User{Name: adminUser, Pass: adminPass, Addrs: []*regexp.Regexp{settings.UserAllowAll}, IsAdmin: true}
-			s.sessions.Set(string(c.SessionID()), u)
-			return nil, nil
-		}
-	}
-
-	// 2) Check database (password or token)
-	if s.db != nil {
-		if dbUser, err := s.db.GetUser(n); err == nil {
-			if dbUser != nil && dbUser.Password == p {
-				u := &settings.User{Name: dbUser.Username, Pass: dbUser.Password, IsAdmin: dbUser.IsAdmin, Addrs: []*regexp.Regexp{settings.UserAllowAll}}
-				s.sessions.Set(string(c.SessionID()), u)
-				return nil, nil
-			}
-		}
-
-		// Try token authentication
-		if userToken, err := s.db.ValidateUserToken(p); err == nil {
-			if dbUser, err := s.db.GetUser(userToken.Username); err == nil {
-				u := &settings.User{Name: dbUser.Username, Pass: "", IsAdmin: dbUser.IsAdmin, Addrs: []*regexp.Regexp{settings.UserAllowAll}}
-				s.sessions.Set(string(c.SessionID()), u)
-				return nil, nil
-			}
-		}
-	}
-
-	// 3) Fallback to in-memory users (authfile and any others loaded)
-	if user, found := s.users.Get(n); found && user.Pass == p {
-		// insert the user session map
+	if user, ok := s.verifyPassword(n, p); ok {
 		s.sessions.Set(string(c.SessionID()), user)
 		return nil, nil
 	}
 
+	// Allow an API token in place of a password for database users
+	if s.db != nil && p != "" {
+		if userToken, err := s.db.ValidateUserToken(p); err == nil && userToken.Username == n {
+			if dbUser, err := s.db.GetUser(userToken.Username); err == nil {
+				u := &settings.User{Name: dbUser.Username, IsAdmin: dbUser.IsAdmin, Addrs: []*regexp.Regexp{settings.UserAllowAll}}
+				s.sessions.Set(string(c.SessionID()), u)
+				return nil, nil
+			}
+		}
+	}
+
 	s.Debugf("Login failed for user: %s", n)
-	return nil, errors.New("Invalid authentication for username: %s")
+	return nil, fmt.Errorf("invalid authentication for username: %s", n)
 }
 
 // AddUser adds a new user into the server user index
@@ -843,13 +826,6 @@ func (s *Server) ipRateRecord(ip string) {
 	}
 	s.ipRateMu.Unlock()
 }
-
-// Backward-compatible wrappers
-func (s *Server) nextLoginDelay(username string) (bool, time.Duration, time.Duration) {
-	return s.nextLoginDelayFor(username, "")
-}
-func (s *Server) recordLoginFailure(username string) { s.recordLoginFailureFor(username, "") }
-func (s *Server) resetLoginBackoff(username string)  { s.resetLoginBackoffFor(username, "") }
 
 func (s *Server) AddUser(user, pass string, addrs ...string) error {
 	authorizedAddrs := []*regexp.Regexp{}

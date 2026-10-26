@@ -4,21 +4,107 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
+	"log"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// Encryption key for API keys (should be loaded from environment)
-var encryptionKey = []byte("chissl-ai-provider-encryption-32") // TODO: Load from config/env
+// EncryptionKeyEnvVar is the environment variable read on first use of the
+// API key encryption helpers. Its value is the AES-256 key: either exactly 32
+// bytes, or any longer passphrase which is SHA-256 hashed into a 32-byte key.
+// Example: CHISSL_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+//
+// If it is unset the built-in legacy key is used and a warning is logged.
+// SetEncryptionKey can be called by the server to override it programmatically.
+const EncryptionKeyEnvVar = "CHISSL_ENCRYPTION_KEY"
 
-// EncryptAPIKey encrypts an API key for secure storage
-func EncryptAPIKey(plaintext string) (string, error) {
-	block, err := aes.NewCipher(encryptionKey)
+// legacyEncryptionKey is the historical hard-coded key. It is kept ONLY so that
+// rows encrypted by older versions can still be decrypted (see DecryptAPIKey);
+// new values are never encrypted with it unless no key has been configured.
+var legacyEncryptionKey = []byte("chissl-ai-provider-encryption-32")
+
+var (
+	encryptionKeyMu   sync.RWMutex
+	encryptionKey     []byte
+	encryptionKeyOnce sync.Once
+)
+
+// deriveEncryptionKey normalises key material into a 32-byte AES-256 key.
+func deriveEncryptionKey(key []byte) ([]byte, error) {
+	switch {
+	case len(key) == 32:
+		out := make([]byte, 32)
+		copy(out, key)
+		return out, nil
+	case len(key) > 32:
+		sum := sha256.Sum256(key)
+		return sum[:], nil
+	default:
+		return nil, fmt.Errorf("encryption key must be at least 32 bytes, got %d", len(key))
+	}
+}
+
+// SetEncryptionKey configures the key used to encrypt API keys. The key must be
+// exactly 32 bytes; a longer passphrase is accepted and SHA-256 hashed to 32
+// bytes. Shorter keys are rejected.
+func SetEncryptionKey(key []byte) error {
+	derived, err := deriveEncryptionKey(key)
+	if err != nil {
+		return err
+	}
+	// Mark initialisation as done so the env lookup never overrides an
+	// explicitly configured key.
+	encryptionKeyOnce.Do(func() {})
+	encryptionKeyMu.Lock()
+	encryptionKey = derived
+	encryptionKeyMu.Unlock()
+	return nil
+}
+
+// initEncryptionKeyFromEnv loads CHISSL_ENCRYPTION_KEY once. When the variable
+// is unset or invalid it falls back to the legacy built-in key and logs a
+// single warning.
+func initEncryptionKeyFromEnv() {
+	encryptionKeyOnce.Do(func() {
+		encryptionKeyMu.Lock()
+		defer encryptionKeyMu.Unlock()
+		if encryptionKey != nil {
+			return
+		}
+		if v := os.Getenv(EncryptionKeyEnvVar); v != "" {
+			derived, err := deriveEncryptionKey([]byte(v))
+			if err == nil {
+				encryptionKey = derived
+				return
+			}
+			log.Printf("WARNING: %s is invalid (%v); falling back to the built-in default key", EncryptionKeyEnvVar, err)
+		} else {
+			log.Printf("WARNING: %s is not set; AI provider API keys are encrypted with the built-in default key. Set it to a 32+ byte secret.", EncryptionKeyEnvVar)
+		}
+		encryptionKey = append([]byte(nil), legacyEncryptionKey...)
+	})
+}
+
+// currentEncryptionKey returns the configured key, initialising from the
+// environment on first use.
+func currentEncryptionKey() []byte {
+	initEncryptionKeyFromEnv()
+	encryptionKeyMu.RLock()
+	defer encryptionKeyMu.RUnlock()
+	return encryptionKey
+}
+
+func aesGCMSeal(key []byte, plaintext string) (string, error) {
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
@@ -37,14 +123,8 @@ func EncryptAPIKey(plaintext string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// DecryptAPIKey decrypts an API key from storage
-func DecryptAPIKey(ciphertext string) (string, error) {
-	data, err := base64.StdEncoding.DecodeString(ciphertext)
-	if err != nil {
-		return "", err
-	}
-
-	block, err := aes.NewCipher(encryptionKey)
+func aesGCMOpen(key, data []byte) (string, error) {
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
@@ -56,7 +136,7 @@ func DecryptAPIKey(ciphertext string) (string, error) {
 
 	nonceSize := gcm.NonceSize()
 	if len(data) < nonceSize {
-		return "", fmt.Errorf("ciphertext too short")
+		return "", errors.New("ciphertext too short")
 	}
 
 	nonce, ciphertextBytes := data[:nonceSize], data[nonceSize:]
@@ -66,6 +146,36 @@ func DecryptAPIKey(ciphertext string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// EncryptAPIKey encrypts an API key for secure storage using the configured key.
+func EncryptAPIKey(plaintext string) (string, error) {
+	return aesGCMSeal(currentEncryptionKey(), plaintext)
+}
+
+// DecryptAPIKey decrypts an API key from storage. It tries the configured key
+// first and falls back to the legacy built-in key so rows written before the
+// key became configurable still decrypt.
+func DecryptAPIKey(ciphertext string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		return "", err
+	}
+
+	key := currentEncryptionKey()
+	plaintext, err := aesGCMOpen(key, data)
+	if err == nil {
+		return plaintext, nil
+	}
+	if string(key) == string(legacyEncryptionKey) {
+		return "", err
+	}
+
+	// Legacy fallback for rows encrypted with the old hard-coded key.
+	if plaintext, legacyErr := aesGCMOpen(legacyEncryptionKey, data); legacyErr == nil {
+		return plaintext, nil
+	}
+	return "", err
 }
 
 // CreateAIProvider creates a new AI provider configuration

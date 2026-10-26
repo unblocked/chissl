@@ -1,7 +1,6 @@
 package chserver
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NextChapterSoftware/chissl/share/ccrypto"
 	"github.com/NextChapterSoftware/chissl/share/database"
 	"github.com/NextChapterSoftware/chissl/share/settings"
 )
@@ -52,13 +52,7 @@ func (s *Server) handleGetUserInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get auth method from context
-	authMethod := ""
-	if method := r.Context().Value("authMethod"); method != nil {
-		if methodStr, ok := method.(string); ok {
-			authMethod = methodStr
-		}
-	}
+	authMethod := authMethodFromContext(r.Context())
 
 	userInfo := UserInfo{
 		Username:       username,
@@ -85,12 +79,10 @@ func (s *Server) handleGetUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Also check current auth method from context
-	if authMethodValue := r.Context().Value("authMethod"); authMethodValue != nil {
-		if authMethodStr, ok := authMethodValue.(string); ok && (authMethodStr == "auth0" || authMethodStr == "sso") {
-			userInfo.SSOEnabled = true
-			if userInfo.AuthMethod == "" {
-				userInfo.AuthMethod = authMethodStr
-			}
+	if authMethod == authMethodAuth0 || authMethod == "sso" {
+		userInfo.SSOEnabled = true
+		if userInfo.AuthMethod == "" {
+			userInfo.AuthMethod = authMethod
 		}
 	}
 
@@ -292,8 +284,8 @@ func (s *Server) handleUpdateUserProfile(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Check if user is using SSO (can't change email)
-	authMethod := r.Context().Value("authMethod")
-	if authMethod == "auth0" && req.Email != "" && req.Email != dbUser.Email {
+	authMethod := authMethodFromContext(r.Context())
+	if authMethod == authMethodAuth0 && req.Email != "" && req.Email != dbUser.Email {
 		http.Error(w, "Cannot change email when using SSO", http.StatusBadRequest)
 		return
 	}
@@ -304,18 +296,23 @@ func (s *Server) handleUpdateUserProfile(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "Current password required to change password", http.StatusBadRequest)
 			return
 		}
-		if dbUser.Password != req.CurrentPassword {
+		if ok, _ := ccrypto.CheckPassword(dbUser.Password, req.CurrentPassword); !ok {
 			http.Error(w, "Current password is incorrect", http.StatusBadRequest)
 			return
 		}
-		dbUser.Password = req.NewPassword
+		hash, err := ccrypto.HashPassword(req.NewPassword)
+		if err != nil {
+			http.Error(w, "Invalid new password", http.StatusBadRequest)
+			return
+		}
+		dbUser.Password = hash
 	}
 
 	// Update fields
 	if req.DisplayName != "" {
 		dbUser.DisplayName = strings.TrimSpace(req.DisplayName)
 	}
-	if req.Email != "" && authMethod != "auth0" {
+	if req.Email != "" && authMethod != authMethodAuth0 {
 		dbUser.Email = strings.TrimSpace(req.Email)
 	}
 
@@ -406,36 +403,4 @@ func (s *Server) handleSetUserPreference(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
-}
-
-// Helper functions
-func (s *Server) getUsernameFromContext(ctx context.Context) string {
-	if username, ok := ctx.Value("username").(string); ok {
-		return username
-	}
-	return ""
-}
-
-func (s *Server) isUserAdmin(ctx context.Context) bool {
-	username := s.getUsernameFromContext(ctx)
-	if username == "" {
-		return false
-	}
-
-	// Check --auth admin
-	if s.config != nil && s.config.Auth != "" {
-		au, _ := settings.ParseAuth(s.config.Auth)
-		if username == au {
-			return true
-		}
-	}
-
-	// Check database user
-	if s.db != nil {
-		if dbUser, err := s.db.GetUser(username); err == nil && dbUser != nil {
-			return dbUser.IsAdmin
-		}
-	}
-
-	return false
 }

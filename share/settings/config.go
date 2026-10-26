@@ -14,7 +14,7 @@ func DecodeConfig(b []byte) (*Config, error) {
 	c := &Config{}
 	err := json.Unmarshal(b, c)
 	if err != nil {
-		return nil, fmt.Errorf("Invalid JSON config")
+		return nil, fmt.Errorf("invalid JSON config")
 	}
 	return c, nil
 }

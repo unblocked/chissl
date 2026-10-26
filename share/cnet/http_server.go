@@ -16,7 +16,6 @@ type HTTPServer struct {
 	*http.Server
 	waiterMux sync.Mutex
 	waiter    *errgroup.Group
-	listenErr error
 }
 
 // NewHTTPServer creates a new HTTPServer
@@ -55,7 +54,7 @@ func (h *HTTPServer) GoServe(ctx context.Context, l net.Listener, handler http.H
 	})
 	go func() {
 		<-ctx.Done()
-		h.Close()
+		_ = h.Close()
 	}()
 	return nil
 }

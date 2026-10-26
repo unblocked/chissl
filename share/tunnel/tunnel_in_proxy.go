@@ -29,7 +29,6 @@ type Proxy struct {
 	id       int
 	count    int
 	remote   *settings.Remote
-	dialer   net.Dialer
 	tcp      *net.TCPListener
 	https    net.Listener
 	tlsConf  *tls.Config
@@ -86,7 +85,7 @@ func (p *Proxy) runTCP(ctx context.Context) error {
 	go func() {
 		select {
 		case <-ctx.Done():
-			p.tcp.Close()
+			_ = p.tcp.Close()
 		case <-done:
 		}
 	}()
@@ -117,7 +116,7 @@ func (p *Proxy) runHTTPS(ctx context.Context) error {
 	go func() {
 		select {
 		case <-ctx.Done():
-			p.tcp.Close()
+			_ = p.tcp.Close()
 		case <-done:
 		}
 	}()

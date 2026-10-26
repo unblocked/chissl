@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/NextChapterSoftware/chissl/share/cio"
-	"github.com/NextChapterSoftware/chissl/share/cnet"
 	"github.com/NextChapterSoftware/chissl/share/settings"
 	"github.com/jpillora/sizestr"
 	"golang.org/x/crypto/ssh"
@@ -17,7 +16,7 @@ func (t *Tunnel) handleSSHRequests(reqs <-chan *ssh.Request) {
 	for r := range reqs {
 		switch r.Type {
 		case "ping":
-			r.Reply(true, []byte("pong"))
+			_ = r.Reply(true, []byte("pong"))
 		default:
 			t.Debugf("Unknown request: %s", r.Type)
 		}
@@ -33,7 +32,7 @@ func (t *Tunnel) handleSSHChannels(chans <-chan ssh.NewChannel) {
 func (t *Tunnel) handleSSHChannel(ch ssh.NewChannel) {
 	if !t.Config.Outbound {
 		t.Debugf("Denied outbound connection")
-		ch.Reject(ssh.Prohibited, "Denied outbound connection")
+		_ = ch.Reject(ssh.Prohibited, "Denied outbound connection")
 		return
 	}
 	remote := string(ch.ExtraData())
@@ -43,7 +42,7 @@ func (t *Tunnel) handleSSHChannel(ch ssh.NewChannel) {
 	socks := hostPort == "socks"
 	if socks && t.socksServer == nil {
 		t.Debugf("Denied socks request, please enable socks")
-		ch.Reject(ssh.Prohibited, "SOCKS5 is not enabled")
+		_ = ch.Reject(ssh.Prohibited, "SOCKS5 is not enabled")
 		return
 	}
 	sshChan, reqs, err := ch.Accept()
@@ -67,10 +66,6 @@ func (t *Tunnel) handleSSHChannel(ch ssh.NewChannel) {
 		errmsg = fmt.Sprintf(" (error %s)", err)
 	}
 	l.Debugf("Close %s%s", t.connStats.String(), errmsg)
-}
-
-func (t *Tunnel) handleSocks(src io.ReadWriteCloser) error {
-	return t.socksServer.ServeConn(cnet.NewRWCConn(src))
 }
 
 func (t *Tunnel) handleTCP(l *cio.Logger, src io.ReadWriteCloser, hostPort string) error {

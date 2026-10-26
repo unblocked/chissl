@@ -48,7 +48,7 @@ jobs:
     name: Test
     strategy:
       matrix:
-        go-version: [1.23.x]
+        go-version: [1.27.x]
         platform: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
     needs: pr-allow
@@ -109,7 +109,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23.x
+          go-version: 1.27.x
           check-latest: true
 
       - name: Run GoReleaser [Linux+Windows]
@@ -140,7 +140,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23.x
+          go-version: 1.27.x
           check-latest: true
 
       - name: Run GoReleaser [Darwin] (build only, no publish)
@@ -220,7 +220,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23.x
+          go-version: 1.27.x
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Build all client binaries
@@ -235,7 +235,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23.x
+          go-version: 1.27.x
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Install cross toolchains and libc headers (Linux CGO)
@@ -258,7 +258,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.21.x
+          go-version: 1.27.x
       - name: Checkout PR head (on approved review)
         if: github.event_name == 'pull_request_review'
         uses: actions/checkout@v4

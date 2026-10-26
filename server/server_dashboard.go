@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -40,41 +40,15 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	s.serveDashboardIndex(w, r)
 }
 
-// isAuthenticated checks if the request is authenticated
+// isAuthenticated checks if the request carries a valid session or basic auth credentials
 func (s *Server) isAuthenticated(r *http.Request) bool {
-	// Check for session cookie first
-	if cookie, err := r.Cookie("chissl_session"); err == nil && cookie.Value != "" {
-		username := cookie.Value
-		// Validate the session user exists (admin or regular user)
-		_, found := s.users.Get(username)
-		if found {
-			return true
-		}
-		if s.db != nil {
-			_, err := s.db.GetUser(username)
-			if err == nil {
-				return true
-			}
-		}
+	if _, ok := s.sessionFromRequest(r); ok {
+		return true
 	}
-
-	// Check for basic auth
-	username, password, ok := s.decodeBasicAuthHeader(r.Header)
-	if ok {
-		// Check in-memory users first
-		user, found := s.users.Get(username)
-		if found && user.Name == username && user.Pass == password {
-			return true
-		}
-		// Then check database
-		if s.db != nil {
-			dbUser, err := s.db.GetUser(username)
-			if err == nil && dbUser.Password == password {
-				return true
-			}
-		}
+	if username, password, ok := s.decodeBasicAuthHeader(r.Header); ok {
+		_, valid := s.verifyPassword(username, password)
+		return valid
 	}
-
 	return false
 }
 
@@ -517,15 +491,15 @@ function loadQuickAccess() {
                 recentListeners.forEach(function(listener) {
                     var statusBadge = listener.status === 'open' ? 'success' : 'secondary';
                     var protocol = listener.use_tls ? 'https' : 'http';
-                    var displayName = listener.name || ('Listener ' + listener.port);
+                    var displayName = escapeHtml(listener.name || ('Listener ' + listener.port));
                     quickListeners += '<div class="d-flex justify-content-between align-items-center mb-2">' +
                         '<div>' +
                         '<strong>' + displayName + '</strong><br>' +
-                        '<small class="text-muted">' + protocol + '://...:'+ listener.port + '</small>' +
+                        '<small class="text-muted">' + protocol + '://...:'+ escapeHtml(listener.port) + '</small>' +
                         '</div>' +
                         '<div>' +
-                        '<span class="badge badge-' + statusBadge + '">' + listener.status + '</span>' +
-                        '<button class="btn btn-sm btn-outline-info ml-1" onclick="showTrafficPayloads(\'' + listener.id + '\', \'listener\')" title="Inspect Traffic">' +
+                        '<span class="badge badge-' + statusBadge + '">' + escapeHtml(listener.status) + '</span>' +
+                        '<button class="btn btn-sm btn-outline-info ml-1" onclick="showTrafficPayloads(\'' + escapeHtml(listener.id) + '\', \'listener\')" title="Inspect Traffic">' +
                         '<i class="fas fa-eye"></i></button>' +
                         '</div>' +
                         '</div>';
@@ -554,7 +528,7 @@ function loadPortReservations() {
                     bannerHtml += '<div class="col-md-4 mb-1">' +
                         '<strong>Ports ' + reservation.start_port + '-' + reservation.end_port + '</strong>';
                     if (reservation.description) {
-                        bannerHtml += '<br><small class="text-muted">' + reservation.description + '</small>';
+                        bannerHtml += '<br><small class="text-muted">' + escapeHtml(reservation.description) + '</small>';
                     }
                     bannerHtml += '</div>';
                 });
@@ -1134,9 +1108,9 @@ function loadAdminPortReservations() {
             if (data && data.length > 0) {
                 data.forEach(function(reservation) {
                     tbody += '<tr>' +
-                        '<td>' + reservation.username + '</td>' +
+                        '<td>' + escapeHtml(reservation.username) + '</td>' +
                         '<td>' + reservation.start_port + '-' + reservation.end_port + '</td>' +
-                        '<td>' + (reservation.description || 'No description') + '</td>' +
+                        '<td>' + escapeHtml(reservation.description || 'No description') + '</td>' +
                         '<td>' + new Date(reservation.created_at).toLocaleString() + '</td>' +
                         '<td>' +
                         '<button class="btn btn-sm btn-outline-danger" onclick="deletePortReservation(\'' + reservation.id + '\')">' +
@@ -1166,7 +1140,7 @@ function loadUserPortInfo() {
                     portInfoHtml += '<div class="mb-2">' +
                         '<strong>Ports ' + reservation.start_port + '-' + reservation.end_port + '</strong>';
                     if (reservation.description) {
-                        portInfoHtml += '<br><small class="text-muted">' + reservation.description + '</small>';
+                        portInfoHtml += '<br><small class="text-muted">' + escapeHtml(reservation.description) + '</small>';
                     }
                     portInfoHtml += '</div>';
                 });
@@ -1324,9 +1298,9 @@ function loadTunnelsData() {
                     tbody += '<tr>' +
                         '<td>' + tunnel.id.substring(0, 8) + '...' +
                         '<br><small><a href="#" onclick="showTunnelPayloads(\'' + tunnel.id + '\')"><i class="fas fa-eye"></i> Inspect Traffic</a></small></td>' +
-                        '<td>' + tunnel.username + '</td>' +
-                        '<td>' + tunnel.local_port + '</td>' +
-                        '<td>' + tunnel.remote_port + '</td>' +
+                        '<td>' + escapeHtml(tunnel.username) + '</td>' +
+                        '<td>' + escapeHtml(tunnel.local_port) + '</td>' +
+                        '<td>' + escapeHtml(tunnel.remote_port) + '</td>' +
                         '<td><span class="badge badge-' + statusBadge + '">' + tunnel.status + '</span></td>' +
                         '<td>' + new Date(tunnel.created_at).toLocaleString() + '</td>' +
                         '<td>' +
@@ -1385,6 +1359,7 @@ function loadUsersData() {
         if (users && users.length > 0) {
             users.forEach(function(user) {
                 var username = user.username || user.name;
+                var safeUsername = escapeHtml(username);
                 var isAdmin = user.is_admin || user.IsAdmin;
                 var adminBadge = isAdmin ? 'success' : 'secondary';
                 var adminText = isAdmin ? 'Yes' : 'No';
@@ -1417,22 +1392,22 @@ function loadUsersData() {
                 }
 
                 // Build action buttons
-                var actionButtons = '<button class="btn btn-sm btn-info mr-1" onclick="showAddPortReservationModal(\'' + username + '\')" title="Assign Ports">' +
+                var actionButtons = '<button class="btn btn-sm btn-info mr-1" onclick="showAddPortReservationModal(\'' + safeUsername + '\')" title="Assign Ports">' +
                     '<i class="fas fa-network-wired"></i></button>';
 
                 // Add remove ports button if user has reservations
                 if (hasReservations) {
-                    actionButtons += '<button class="btn btn-sm btn-outline-warning mr-1" onclick="removeUserPortReservations(\'' + username + '\')" title="Remove Port Assignments">' +
+                    actionButtons += '<button class="btn btn-sm btn-outline-warning mr-1" onclick="removeUserPortReservations(\'' + safeUsername + '\')" title="Remove Port Assignments">' +
                         '<i class="fas fa-times"></i></button>';
                 }
 
-                actionButtons += '<button class="btn btn-sm btn-warning mr-1 edit-user-btn" data-username="' + username + '" title="Edit User">' +
+                actionButtons += '<button class="btn btn-sm btn-warning mr-1 edit-user-btn" data-username="' + safeUsername + '" title="Edit User">' +
                     '<i class="fas fa-edit"></i></button>' +
-                    '<button class="btn btn-sm btn-danger delete-user-btn" data-username="' + username + '" title="Delete User">' +
+                    '<button class="btn btn-sm btn-danger delete-user-btn" data-username="' + safeUsername + '" title="Delete User">' +
                     '<i class="fas fa-trash"></i></button>';
 
                 tbody += '<tr>' +
-                    '<td>' + username + '</td>' +
+                    '<td>' + safeUsername + '</td>' +
                     '<td><span class="badge badge-' + adminBadge + '">' + adminText + '</span></td>' +
                     '<td>' + authSourceHtml + '</td>' +
                     '<td>' + portReservationsHtml + '</td>' +
@@ -1457,7 +1432,7 @@ function loadLogsData() {
                     var levelClass = log.level === 'error' ? 'text-danger' :
                                    log.level === 'warning' ? 'text-warning' : 'text-info';
                     logsHtml += '<div class="' + levelClass + '">[' + log.timestamp + '] [' +
-                               log.level.toUpperCase() + '] ' + log.message + '</div>';
+                               log.level.toUpperCase() + '] ' + escapeHtml(log.message) + '</div>';
                 });
             } else {
                 logsHtml = '<div class="text-muted">No logs available</div>';
@@ -1485,7 +1460,7 @@ function loadPortAccessBanner() {
                     bannerHtml += '<div class="col-md-4 mb-2">' +
                         '<strong>Ports ' + reservation.start_port + '-' + reservation.end_port + '</strong>';
                     if (reservation.description) {
-                        bannerHtml += '<br><small class="text-muted">' + reservation.description + '</small>';
+                        bannerHtml += '<br><small class="text-muted">' + escapeHtml(reservation.description) + '</small>';
                     }
                     bannerHtml += '</div>';
                 });
@@ -1568,19 +1543,23 @@ function loadListenersData() {
                         (listener.response || 'Default response');
                     var truncatedTargetOrResponse = fullTargetOrResponse.length > 30 ?
                         fullTargetOrResponse.substring(0, 30) + '...' : fullTargetOrResponse;
-                    var targetOrResponseCell = truncatedTargetOrResponse;
+                    var targetOrResponseCell = escapeHtml(truncatedTargetOrResponse);
                     if (fullTargetOrResponse.length > 30) {
+                        // Pass the values through a JS string literal inside an HTML attribute:
+                        // JSON-encode for the JS context, then HTML-escape for the attribute.
+                        var jsArgs = escapeHtml(JSON.stringify(String(listener.id)) + ', ' +
+                            JSON.stringify(fullTargetOrResponse) + ', ' +
+                            JSON.stringify(String(listener.mode)));
                         targetOrResponseCell += ' <i class="fas fa-info-circle text-info ml-1" ' +
                             'style="cursor: pointer;" ' +
-                            'onclick="showTargetResponseModal(\'' + listener.id + '\', \'' +
-                            fullTargetOrResponse.replace(/'/g, '\\\'').replace(/"/g, '&quot;') + '\', \'' +
-                            listener.mode + '\')" ' +
+                            'onclick="showTargetResponseModal(' + jsArgs + ')" ' +
                             'title="Click to view full content"></i>';
                     }
 
                     var protocol = listener.use_tls ? 'https' : 'http';
-                    var displayName = listener.name || ('Listener ' + listener.port);
-                    var fullUrl = protocol + '://' + window.location.hostname + ':' + listener.port;
+                    var displayName = escapeHtml(listener.name || ('Listener ' + listener.port));
+                    var fullUrl = escapeHtml(protocol + '://' + window.location.hostname + ':' + listener.port);
+                    var safeListenerId = escapeHtml(listener.id);
 
                     tbody += '<tr>' +
                         '<td>' + displayName + '</td>' +
@@ -1594,18 +1573,18 @@ function loadListenersData() {
                         '</div>' +
                         '</div>' +
                         '</td>' +
-                        '<td>' + listener.username + '</td>' +
-                        '<td>' + listener.port + '</td>' +
-                        '<td><span class="badge badge-' + (listener.mode === 'proxy' ? 'info' : 'warning') + '">' + listener.mode + '</span></td>' +
+                        '<td>' + escapeHtml(listener.username) + '</td>' +
+                        '<td>' + escapeHtml(listener.port) + '</td>' +
+                        '<td><span class="badge badge-' + (listener.mode === 'proxy' ? 'info' : 'warning') + '">' + escapeHtml(listener.mode) + '</span></td>' +
                         '<td>' + targetOrResponseCell + '</td>' +
-                        '<td><span class="badge badge-' + statusBadge + '">' + listener.status + '</span></td>' +
+                        '<td><span class="badge badge-' + statusBadge + '">' + escapeHtml(listener.status) + '</span></td>' +
                         '<td>' + new Date(listener.created_at).toLocaleString() + '</td>' +
                         '<td>' +
-                        '<button class="btn btn-sm btn-info" onclick="showTrafficPayloads(\'' + listener.id + '\', \'listener\')" title="Inspect Traffic">' +
+                        '<button class="btn btn-sm btn-info" onclick="showTrafficPayloads(\'' + safeListenerId + '\', \'listener\')" title="Inspect Traffic">' +
                         '<i class="fas fa-eye"></i></button> ' +
-                        '<button class="btn btn-sm btn-warning" onclick="editListener(\'' + listener.id + '\')" title="Edit">' +
+                        '<button class="btn btn-sm btn-warning" onclick="editListener(\'' + safeListenerId + '\')" title="Edit">' +
                         '<i class="fas fa-edit"></i></button> ' +
-                        '<button class="btn btn-sm btn-danger" onclick="deleteListener(\'' + listener.id + '\')" title="Delete">' +
+                        '<button class="btn btn-sm btn-danger" onclick="deleteListener(\'' + safeListenerId + '\')" title="Delete">' +
                         '<i class="fas fa-trash"></i></button>' +
                         '</td>' +
                         '</tr>';
@@ -1665,7 +1644,7 @@ function loadUserTokens() {
                 tokensList += '<div class="border rounded p-3 mb-2">' +
                     '<div class="d-flex justify-content-between align-items-center">' +
                     '<div>' +
-                    '<strong>' + (token.name || 'Unnamed Token') + '</strong><br>' +
+                    '<strong>' + escapeHtml(token.name || 'Unnamed Token') + '</strong><br>' +
                     '<small class="text-muted">Created: ' + createdDate + ' | Last used: ' + lastUsed + '</small>' +
                     '</div>' +
                     '<button class="btn btn-sm btn-danger" onclick="revokeToken(\'' + token.id + '\')">' +
@@ -1972,31 +1951,31 @@ function editListener(listenerID) {
             var modalHtml = '<div class="modal fade" id="editListenerModal" tabindex="-1" role="dialog">' +
                 '<div class="modal-dialog" role="document"><div class="modal-content">' +
                 '<div class="modal-header">' +
-                '<h4 class="modal-title">Edit Listener: ' + listener.id.substring(0, 8) + '...</h4>' +
+                '<h4 class="modal-title">Edit Listener: ' + escapeHtml(String(listener.id).substring(0, 8)) + '...</h4>' +
                 '<button type="button" class="close" data-dismiss="modal">&times;</button>' +
                 '</div>' +
                 '<div class="modal-body">' +
                 '<form id="editListenerForm">' +
                 '<div class="form-group">' +
                 '<label for="editName">Name</label>' +
-                '<input type="text" class="form-control" id="editName" value="' + (listener.name || '') + '">' +
+                '<input type="text" class="form-control" id="editName" value="' + escapeHtml(listener.name || '') + '">' +
                 '</div>' +
                 '<div class="form-group">' +
                 '<label>Port</label>' +
-                '<input type="text" class="form-control" value="' + listener.port + '" readonly>' +
+                '<input type="text" class="form-control" value="' + escapeHtml(listener.port) + '" readonly>' +
                 '</div>' +
                 '<div class="form-group">' +
                 '<label>Mode</label>' +
-                '<input type="text" class="form-control" value="' + listener.mode + '" readonly>' +
+                '<input type="text" class="form-control" value="' + escapeHtml(listener.mode) + '" readonly>' +
                 '</div>' +
                 (listener.mode === 'proxy' ?
                     '<div class="form-group">' +
                     '<label for="editTargetUrl">Target URL</label>' +
-                    '<input type="url" class="form-control" id="editTargetUrl" value="' + (listener.target_url || '') + '">' +
+                    '<input type="url" class="form-control" id="editTargetUrl" value="' + escapeHtml(listener.target_url || '') + '">' +
                     '</div>' :
                     '<div class="form-group">' +
                     '<label for="editResponse">Response (JSON)</label>' +
-                    '<textarea class="form-control" id="editResponse" rows="3">' + (listener.response || '') + '</textarea>' +
+                    '<textarea class="form-control" id="editResponse" rows="3">' + escapeHtml(listener.response || '') + '</textarea>' +
                     '</div>'
                 ) +
                 '<div class="form-group">' +
@@ -2107,7 +2086,7 @@ function loadLogsData() {
                     }
 
                     var timestamp = new Date(log.timestamp).toLocaleString();
-                    var source = log.source ? ' [' + log.source + ']' : '';
+                    var source = log.source ? ' [' + escapeHtml(log.source) + ']' : '';
 
                     logsHtml += '<div class="log-entry mb-1" style="border-left: 3px solid ' +
                         (levelClass.includes('danger') ? '#dc3545' :
@@ -2234,7 +2213,8 @@ function escapeHtml(text) {
         '"': '&quot;',
         "'": '&#039;'
     };
-    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+    if (text === null || text === undefined) { return ''; }
+    return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
 }
 
 function formatBytes(bytes) {
@@ -2381,7 +2361,8 @@ function updateSSOConfigForm() {
             '</div>' +
             '<div class="form-group">' +
             '<label for="clientSecret">Client Secret *</label>' +
-            '<input type="password" class="form-control" id="clientSecret" placeholder="Your OAuth2 Client Secret" required>' +
+            '<input type="password" class="form-control" id="clientSecret" placeholder="Your OAuth2 Client Secret" autocomplete="new-password" required>' +
+            '<small class="form-text text-muted" id="clientSecretHelp" style="display:none;">A secret is already stored. Leave blank to keep it unchanged.</small>' +
             '</div>' +
             '<div class="form-group">' +
             '<label for="authUrl">Authorization URL *</label>' +
@@ -2424,7 +2405,8 @@ function updateSSOConfigForm() {
             '</div>' +
             '<div class="form-group">' +
             '<label for="auth0ClientSecret">Client Secret *</label>' +
-            '<input type="password" class="form-control" id="auth0ClientSecret" placeholder="Your Auth0 Client Secret" required>' +
+            '<input type="password" class="form-control" id="auth0ClientSecret" placeholder="Your Auth0 Client Secret" autocomplete="new-password" required>' +
+            '<small class="form-text text-muted" id="auth0ClientSecretHelp" style="display:none;">A secret is already stored. Leave blank to keep it unchanged.</small>' +
             '</div>';
     }
 
@@ -2448,7 +2430,9 @@ function saveSSOConfig() {
         var tokenUrl = $('#tokenUrl').val();
         var userInfoUrl = $('#userInfoUrl').val();
 
-        if (!clientId || !clientSecret || !authUrl || !tokenUrl || !userInfoUrl) {
+        // An empty secret means "keep the existing stored secret" when one exists.
+        var hasStoredSecret = $('#clientSecret').data('hasSecret') === true;
+        if (!clientId || (!clientSecret && !hasStoredSecret) || !authUrl || !tokenUrl || !userInfoUrl) {
             alert('Please fill in all required fields');
             return;
         }
@@ -2471,7 +2455,9 @@ function saveSSOConfig() {
         var clientId = $('#auth0ClientId').val();
         var clientSecret = $('#auth0ClientSecret').val();
 
-        if (!domain || !clientId || !clientSecret) {
+        // An empty secret means "keep the existing stored secret" when one exists.
+        var hasStoredAuth0Secret = $('#auth0ClientSecret').data('hasSecret') === true;
+        if (!domain || !clientId || (!clientSecret && !hasStoredAuth0Secret)) {
             alert('Please fill in all required fields');
             return;
         }
@@ -2521,7 +2507,12 @@ function editSSOConfig(provider) {
                 setTimeout(function() {
                     if (config.provider === 'okta' || config.provider === 'scim') {
                         $('#clientId').val(config.config.client_id || '');
-                        $('#clientSecret').val(config.config.client_secret || '');
+                        // The API never returns the stored secret; blank means keep existing.
+                        $('#clientSecret').val('')
+                            .data('hasSecret', config.has_client_secret === true)
+                            .prop('required', config.has_client_secret !== true)
+                            .attr('placeholder', config.has_client_secret ? 'unchanged' : 'Your OAuth2 Client Secret');
+                        $('#clientSecretHelp').toggle(config.has_client_secret === true);
                         $('#authUrl').val(config.config.auth_url || '');
                         $('#tokenUrl').val(config.config.token_url || '');
                         $('#userInfoUrl').val(config.config.user_info_url || '');
@@ -2532,7 +2523,12 @@ function editSSOConfig(provider) {
                     } else if (config.provider === 'auth0') {
                         $('#auth0Domain').val(config.config.domain || '');
                         $('#auth0ClientId').val(config.config.client_id || '');
-                        $('#auth0ClientSecret').val(config.config.client_secret || '');
+                        // The API never returns the stored secret; blank means keep existing.
+                        $('#auth0ClientSecret').val('')
+                            .data('hasSecret', config.has_client_secret === true)
+                            .prop('required', config.has_client_secret !== true)
+                            .attr('placeholder', config.has_client_secret ? 'unchanged' : 'Your Auth0 Client Secret');
+                        $('#auth0ClientSecretHelp').toggle(config.has_client_secret === true);
                     }
                 }, 100);
             });
@@ -2650,7 +2646,7 @@ function editUser(username) {
     var modalHtml = '<div class="modal fade" id="editUserModal" tabindex="-1" role="dialog">' +
         '<div class="modal-dialog" role="document"><div class="modal-content">' +
         '<div class="modal-header">' +
-        '<h4 class="modal-title">Edit User: ' + username + '</h4>' +
+        '<h4 class="modal-title">Edit User: ' + escapeHtml(username) + '</h4>' +
         '<button type="button" class="close" data-dismiss="modal" aria-label="Close">' +
         '<span aria-hidden="true">&times;</span></button>' +
         '</div>' +
@@ -2658,7 +2654,7 @@ function editUser(username) {
         '<form id="editUserForm">' +
         '<div class="form-group">' +
         '<label>Username:</label>' +
-        '<input type="text" class="form-control" id="editUsername" value="' + username + '" readonly>' +
+        '<input type="text" class="form-control" id="editUsername" value="' + escapeHtml(username) + '" readonly>' +
         '</div>' +
         '<div class="form-group">' +
         '<label>New Password (leave blank to keep current):</label>' +
@@ -2671,7 +2667,7 @@ function editUser(username) {
         '</div>' +
         '<div class="modal-footer">' +
         '<button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>' +
-        '<button type="button" class="btn btn-primary" onclick="updateUser(\'' + username + '\')">Update User</button>' +
+        '<button type="button" class="btn btn-primary" onclick="updateUser(\'' + escapeHtml(username) + '\')">Update User</button>' +
         '</div>' +
         '</div></div></div>';
 
@@ -2841,7 +2837,7 @@ function showAddPortReservationModal(preselectedUser) {
                 data.forEach(function(user) {
                     var username = user.username || user.name;
                     var selected = (preselectedUser && username === preselectedUser) ? ' selected' : '';
-                    options += '<option value="' + username + '"' + selected + '>' + username + '</option>';
+                    options += '<option value="' + escapeHtml(username) + '"' + selected + '>' + escapeHtml(username) + '</option>';
                 });
             }
             $('#reservationUsername').html(options);
@@ -3411,24 +3407,8 @@ func (s *Server) handleDashboardLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Validate credentials - check both database and in-memory users
-	authenticated := false
-
-	// First check in-memory users (for --auth flag users)
-	user, found := s.users.Get(username)
-	if found && user.Name == username && user.Pass == password {
-		s.Debugf("Authentication successful via in-memory users")
-		authenticated = true
-	}
-
-	// If not found in memory and database is available, check database
-	if !authenticated && s.db != nil {
-		dbUser, err := s.db.GetUser(username)
-		if err == nil && dbUser.Password == password {
-			s.Debugf("Authentication successful via database")
-			authenticated = true
-		}
-	}
+	// Validate credentials against --auth admin, database and authfile users
+	_, authenticated := s.verifyPassword(username, password)
 
 	if authenticated {
 		// reset backoff state on success
@@ -3437,21 +3417,11 @@ func (s *Server) handleDashboardLogin(w http.ResponseWriter, r *http.Request) {
 		// record IP attempt
 		s.ipRateRecord(ip)
 		s.Debugf("Setting session cookie for user: %s", username)
-		// Compute session TTL (minutes -> seconds), default to 24h if unset/invalid
-		ttlMin := s.config.Security.SessionTTLMinutes
-		if ttlMin <= 0 {
-			ttlMin = 24 * 60
+		if err := s.loginSession(w, r, username); err != nil {
+			s.Debugf("Failed to create session for %s: %v", username, err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
 		}
-		ttlSec := ttlMin * 60
-		// Set session cookie (simplified)
-		http.SetCookie(w, &http.Cookie{
-			Name:     "chissl_session",
-			Value:    username, // In production, use a secure session token
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   false, // Set to true in production with HTTPS
-			MaxAge:   ttlSec,
-		})
 		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 		return
 	}
@@ -3471,44 +3441,23 @@ func (s *Server) handleDashboardLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleDashboardLogout handles logout
 func (s *Server) handleDashboardLogout(w http.ResponseWriter, r *http.Request) {
-	// Clear session cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "chissl_session",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		MaxAge:   -1, // Delete cookie
-	})
+	s.logoutSession(w, r)
 	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 }
 
-// serveDashboardAsset serves static assets
+// serveDashboardAsset serves embedded static assets. Only the embedded
+// filesystem is consulted so request paths can never reach the host disk.
 func (s *Server) serveDashboardAsset(w http.ResponseWriter, r *http.Request) {
-	// Remove /dashboard prefix from path
-	assetPath := r.URL.Path
-	if len(assetPath) > 10 && assetPath[:10] == "/dashboard" {
-		assetPath = assetPath[10:]
+	assetPath := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+	assetPath = strings.TrimPrefix(assetPath, "dashboard/")
+	if assetPath == "" || strings.HasPrefix(assetPath, "..") {
+		http.NotFound(w, r)
+		return
 	}
-
-	// Remove leading slash
-	if len(assetPath) > 0 && assetPath[0] == '/' {
-		assetPath = assetPath[1:]
-	}
-
-	// Build full file path
-	fullPath := filepath.Join("server", "dashboard", assetPath)
-
-	// Check if file exists and read it
-	// Try embedded assets first
-	embeddedPath := filepath.Join("dashboard", assetPath)
-	content, err := embeddedDashboardFS.ReadFile(embeddedPath)
+	content, err := embeddedDashboardFS.ReadFile(path.Join("dashboard", assetPath))
 	if err != nil {
-		// Fallback to disk in case of dev mode or missing embed
-		content, err = os.ReadFile(fullPath)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
+		http.NotFound(w, r)
+		return
 	}
 
 	// Set appropriate content type based on file extension
@@ -3541,6 +3490,6 @@ func (s *Server) serveDashboardAsset(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.Header().Set("Content-Type", "application/octet-stream")
 	}
-
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Write(content)
 }

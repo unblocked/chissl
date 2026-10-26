@@ -316,6 +316,8 @@ func (d *SQLDatabase) getSQLiteMigrations() []string {
 		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_listener_id ON ai_response_versions(ai_listener_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_version ON ai_response_versions(ai_listener_id, version_number)`,
 		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_active ON ai_response_versions(ai_listener_id, is_active)`,
+		// SSO-provisioned accounts must not have a usable password (legacy placeholder)
+		`UPDATE users SET password = '' WHERE password = 'SSO_USER'`,
 	}
 }
 
@@ -603,5 +605,7 @@ func (d *SQLDatabase) getPostgresMigrations() []string {
 		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_listener_id ON ai_response_versions(ai_listener_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_version ON ai_response_versions(ai_listener_id, version_number)`,
 		`CREATE INDEX IF NOT EXISTS idx_ai_response_versions_active ON ai_response_versions(ai_listener_id, is_active)`,
+		// SSO-provisioned accounts must not have a usable password (legacy placeholder)
+		`UPDATE users SET password = '' WHERE password = 'SSO_USER'`,
 	}
 }

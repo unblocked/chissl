@@ -27,7 +27,7 @@ type MulticastTunnel struct {
 func (d *SQLDatabase) CreateMulticastTunnel(mt *MulticastTunnel) error {
 	mt.CreatedAt = time.Now()
 	mt.UpdatedAt = time.Now()
-	if mt.UseTLS == false {
+	if !mt.UseTLS {
 		// Enforce TLS always on
 		mt.UseTLS = true
 	}

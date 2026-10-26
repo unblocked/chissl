@@ -19,7 +19,37 @@ type SSOConfigRequest struct {
 // SSOConfigResponse represents SSO configuration response
 type SSOConfigResponse struct {
 	*database.SSOConfig
-	TestURL string `json:"test_url,omitempty"`
+	TestURL         string `json:"test_url,omitempty"`
+	HasClientSecret bool   `json:"has_client_secret"`
+}
+
+// redactSSOConfig returns a copy of config with the client secret removed and
+// reports whether a secret is stored. Config values are stored by value, so the
+// original (and anything cached from the database) is never modified.
+func redactSSOConfig(config *database.SSOConfig) (*database.SSOConfig, bool) {
+	if config == nil {
+		return nil, false
+	}
+	copied := *config
+	copied.ConfigJSON = ""
+	hasSecret := false
+	switch cfg := copied.Config.(type) {
+	case database.SCIMConfig:
+		hasSecret = cfg.ClientSecret != ""
+		cfg.ClientSecret = ""
+		copied.Config = cfg
+	case database.Auth0Config:
+		hasSecret = cfg.ClientSecret != ""
+		cfg.ClientSecret = ""
+		copied.Config = cfg
+	}
+	return &copied, hasSecret
+}
+
+// newSSOConfigResponse builds a response with the client secret redacted.
+func newSSOConfigResponse(config *database.SSOConfig) SSOConfigResponse {
+	redacted, hasSecret := redactSSOConfig(config)
+	return SSOConfigResponse{SSOConfig: redacted, HasClientSecret: hasSecret}
 }
 
 // handleListSSOConfigs returns all SSO configurations (admin only)
@@ -39,9 +69,7 @@ func (s *Server) handleListSSOConfigs(w http.ResponseWriter, r *http.Request) {
 	// Convert to response format
 	var responses []SSOConfigResponse
 	for _, config := range configs {
-		response := SSOConfigResponse{
-			SSOConfig: config,
-		}
+		response := newSSOConfigResponse(config)
 
 		// Add test URL for SCIM providers
 		if config.Provider == database.SSOProviderSCIM || config.Provider == database.SSOProviderOkta {
@@ -84,9 +112,7 @@ func (s *Server) handleGetSSOConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := SSOConfigResponse{
-		SSOConfig: config,
-	}
+	response := newSSOConfigResponse(config)
 
 	// Add test URL for SCIM providers
 	if config.Provider == database.SSOProviderSCIM || config.Provider == database.SSOProviderOkta {
@@ -116,6 +142,10 @@ func (s *Server) handleCreateSSOConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load any existing config so an empty client_secret means "keep existing"
+	// (GET responses never return the stored secret).
+	existing, _ := s.db.GetSSOConfig(req.Provider)
+
 	// Parse config based on provider
 	var config interface{}
 	switch req.Provider {
@@ -124,6 +154,12 @@ func (s *Server) handleCreateSSOConfig(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(req.Config, &scimConfig); err != nil {
 			http.Error(w, "Invalid SCIM configuration", http.StatusBadRequest)
 			return
+		}
+
+		if scimConfig.ClientSecret == "" && existing != nil {
+			if prev, ok := existing.Config.(database.SCIMConfig); ok {
+				scimConfig.ClientSecret = prev.ClientSecret
+			}
 		}
 
 		// Validate required fields
@@ -139,6 +175,12 @@ func (s *Server) handleCreateSSOConfig(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(req.Config, &auth0Config); err != nil {
 			http.Error(w, "Invalid Auth0 configuration", http.StatusBadRequest)
 			return
+		}
+
+		if auth0Config.ClientSecret == "" && existing != nil {
+			if prev, ok := existing.Config.(database.Auth0Config); ok {
+				auth0Config.ClientSecret = prev.ClientSecret
+			}
 		}
 
 		// Validate required fields
@@ -172,9 +214,7 @@ func (s *Server) handleCreateSSOConfig(w http.ResponseWriter, r *http.Request) {
 		s.reloadSSOMiddleware(req.Provider)
 	}
 
-	response := SSOConfigResponse{
-		SSOConfig: ssoConfig,
-	}
+	response := newSSOConfigResponse(ssoConfig)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

@@ -1,7 +1,6 @@
 package chserver
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,12 +8,33 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
-	"time"
 
-	"github.com/NextChapterSoftware/chissl/share/auth"
+	"github.com/NextChapterSoftware/chissl/share/ccrypto"
 	"github.com/NextChapterSoftware/chissl/share/database"
 	"github.com/NextChapterSoftware/chissl/share/settings"
 )
+
+// dbUserRequest is the JSON body accepted when creating or updating a database user.
+// Passwords are accepted here and hashed before storage; they are never serialized back.
+type dbUserRequest struct {
+	Username    string `json:"username"`
+	Password    string `json:"password,omitempty"`
+	Email       string `json:"email,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	IsAdmin     bool   `json:"is_admin"`
+	Addresses   string `json:"addresses"`
+}
+
+func (r dbUserRequest) toUser() *database.User {
+	return &database.User{
+		Username:    r.Username,
+		Password:    r.Password,
+		Email:       r.Email,
+		DisplayName: r.DisplayName,
+		IsAdmin:     r.IsAdmin,
+		Addresses:   r.Addresses,
+	}
+}
 
 type UpdateUserRequest struct {
 	Name    string           `json:"username"`
@@ -47,354 +67,6 @@ func (s *Server) decodeBasicAuthHeader(headers http.Header) (username, password 
 	}
 
 	return credentials[0], credentials[1], true
-}
-
-// getCurrentUsername extracts the current username from the request context or headers
-func (s *Server) getCurrentUsername(r *http.Request) string {
-	// Try to get from context first (Auth0)
-	if userInfo, ok := r.Context().Value("userInfo").(*auth.UserInfo); ok {
-		return userInfo.Username
-	}
-
-	// Try to get from context (set by combinedAuthMiddleware)
-	if username, ok := r.Context().Value("username").(string); ok {
-		return username
-	}
-
-	// Try session cookie
-	if cookie, err := r.Cookie("chissl_session"); err == nil && cookie.Value != "" {
-		return cookie.Value
-	}
-
-	// Fall back to basic auth
-	username, _, _ := s.decodeBasicAuthHeader(r.Header)
-	return username
-}
-
-// UserAuthMiddleware validates authentication for any user (not just admins)
-func (s *Server) userAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Check for session cookie first (for dashboard)
-		if cookie, err := r.Cookie("chissl_session"); err == nil && cookie.Value != "" {
-			username := cookie.Value
-			// Check --auth admin
-			if s.config != nil && s.config.Auth != "" {
-				au, _ := settings.ParseAuth(s.config.Auth)
-				if username == au {
-					ctx := r.Context()
-					ctx = context.WithValue(ctx, "username", username)
-					ctx = context.WithValue(ctx, "authMethod", "session")
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
-			// Check DB user
-			if s.db != nil {
-				if _, err := s.db.GetUser(username); err == nil {
-					ctx := r.Context()
-					ctx = context.WithValue(ctx, "username", username)
-					ctx = context.WithValue(ctx, "authMethod", "session")
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
-			// Check authfile user
-			if _, found := s.users.Get(username); found {
-				ctx := r.Context()
-				ctx = context.WithValue(ctx, "username", username)
-				ctx = context.WithValue(ctx, "authMethod", "session")
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-		}
-
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		// Try API token first if it's a Bearer token
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-
-			// Check API tokens in database
-			if s.db != nil {
-				userToken, err := s.db.ValidateUserToken(token)
-				if err == nil && userToken != nil {
-					// API token authentication successful
-					ctx := r.Context()
-					ctx = context.WithValue(ctx, "username", userToken.Username)
-					ctx = context.WithValue(ctx, "authMethod", "api_token")
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
-
-			// Try Auth0 JWT token if API token failed
-			if s.auth0 != nil {
-				userInfo, err := s.auth0.ValidateToken(authHeader)
-				if err == nil {
-					// Auth0 authentication successful
-					ctx := r.Context()
-					ctx = context.WithValue(ctx, "userInfo", userInfo)
-					ctx = context.WithValue(ctx, "authMethod", "auth0")
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
-		}
-
-		// Fall back to basic authentication
-		if strings.HasPrefix(authHeader, "Basic ") {
-			username, password, ok := s.decodeBasicAuthHeader(r.Header)
-			if !ok {
-				http.Error(w, "Invalid basic auth format", http.StatusUnauthorized)
-				return
-			}
-			// Global IP-only rate limit
-			if locked, retry := s.ipRateCheck(s.clientIP(r)); locked {
-				if retry > 0 {
-					w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retry.Seconds())))
-				}
-				http.Error(w, "Too many requests. Please try again later.", http.StatusTooManyRequests)
-				return
-			}
-			// Apply per-username/per-IP backoff for basic auth
-			if username != "" {
-				ip := s.clientIP(r)
-				locked, retryAfter, delay := s.nextLoginDelayFor(username, ip)
-				if locked {
-					if retryAfter > 0 {
-						w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retryAfter.Seconds())))
-					}
-					http.Error(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
-					return
-				}
-				if delay > 0 {
-					time.Sleep(delay)
-				}
-			}
-			var user *settings.User
-			var found bool
-			// Check in-memory users first
-			user, found = s.users.Get(username)
-			if found && (username != user.Name || password != user.Pass) {
-				found = false
-			}
-			// If not found in memory and database is available, check database
-			if !found && s.db != nil {
-				dbUser, err := s.db.GetUser(username)
-				if err == nil && dbUser.Password == password {
-					user = &settings.User{Name: dbUser.Username, Pass: dbUser.Password, IsAdmin: dbUser.IsAdmin}
-					found = true
-				}
-			}
-			if !found {
-				if username != "" {
-					s.recordLoginFailureFor(username, s.clientIP(r))
-				}
-				// record IP attempt
-				s.ipRateRecord(s.clientIP(r))
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			// success: reset backoff and continue
-			s.resetLoginBackoffFor(username, s.clientIP(r))
-			// record IP attempt
-			s.ipRateRecord(s.clientIP(r))
-			ctx := r.Context()
-			ctx = context.WithValue(ctx, "username", username)
-			ctx = context.WithValue(ctx, "user", user)
-			ctx = context.WithValue(ctx, "authMethod", "basic")
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
-		}
-
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-	}
-}
-
-// BasicAuthMiddleware validates the username and password
-func (s *Server) basicAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		username, password, ok := s.decodeBasicAuthHeader(r.Header)
-		if !ok {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		// Accept --auth admin
-		if s.config != nil && s.config.Auth != "" {
-			au, ap := settings.ParseAuth(s.config.Auth)
-			if username == au && password == ap {
-				next.ServeHTTP(w, r)
-				return
-			}
-		}
-		// Then DB
-		if s.db != nil {
-			if dbUser, err := s.db.GetUser(username); err == nil {
-				if dbUser != nil && dbUser.Password == password && dbUser.IsAdmin {
-					next.ServeHTTP(w, r)
-					return
-				}
-			}
-		}
-		// Finally authfile/in-memory
-		if u, found := s.users.Get(username); found && u.Pass == password && u.IsAdmin {
-			next.ServeHTTP(w, r)
-			return
-		}
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-	}
-}
-
-// CombinedAuthMiddleware validates both Auth0 JWT tokens and basic auth
-func (s *Server) combinedAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Check for session cookie first (for dashboard) — session user can be admin from --auth or DB
-		if cookie, err := r.Cookie("chissl_session"); err == nil && cookie.Value != "" {
-			username := cookie.Value
-			// --auth admin
-			if s.config != nil && s.config.Auth != "" {
-				au, _ := settings.ParseAuth(s.config.Auth)
-				if username == au {
-					ctx := r.Context()
-					ctx = context.WithValue(ctx, "username", username)
-					ctx = context.WithValue(ctx, "authMethod", "session")
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
-			// DB admin
-			if s.db != nil {
-				if dbUser, err := s.db.GetUser(username); err == nil && dbUser.IsAdmin {
-					ctx := r.Context()
-					ctx = context.WithValue(ctx, "username", username)
-					ctx = context.WithValue(ctx, "authMethod", "session")
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
-			// Authfile admin
-			if user, found := s.users.Get(username); found && user.IsAdmin {
-				ctx := r.Context()
-				ctx = context.WithValue(ctx, "username", username)
-				ctx = context.WithValue(ctx, "user", user)
-				ctx = context.WithValue(ctx, "authMethod", "session")
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-		}
-
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		// Try Auth0 JWT token first if enabled
-		if s.auth0 != nil && strings.HasPrefix(authHeader, "Bearer ") {
-			userInfo, err := s.auth0.ValidateToken(authHeader)
-			if err == nil {
-				// Auth0 authentication successful
-				// Check if user exists in our system or create them
-				if s.db != nil {
-					dbUser, err := s.db.GetUser(userInfo.Username)
-					if err != nil {
-						// User doesn't exist, create them (if auto-provisioning is enabled)
-						dbUser = &database.User{
-							Username:  userInfo.Username,
-							Password:  "",    // No password for Auth0 users
-							IsAdmin:   false, // Default to non-admin
-							Addresses: "",
-						}
-						if err := s.db.CreateUser(dbUser); err != nil {
-							http.Error(w, "Failed to create user", http.StatusInternalServerError)
-							return
-						}
-					}
-
-					// Add user info to context
-					ctx := r.Context()
-					ctx = context.WithValue(ctx, "userInfo", userInfo)
-					ctx = context.WithValue(ctx, "dbUser", dbUser)
-					ctx = context.WithValue(ctx, "authMethod", "auth0")
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
-		}
-
-		// Fall back to basic authentication
-		if strings.HasPrefix(authHeader, "Basic ") {
-			username, password, ok := s.decodeBasicAuthHeader(r.Header)
-			if !ok {
-				http.Error(w, "Invalid basic auth format", http.StatusUnauthorized)
-				return
-			}
-			// Global IP-only rate limit
-			if locked, retry := s.ipRateCheck(s.clientIP(r)); locked {
-				if retry > 0 {
-					w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retry.Seconds())))
-				}
-				http.Error(w, "Too many requests. Please try again later.", http.StatusTooManyRequests)
-				return
-			}
-			// Apply per-username/per-IP backoff for basic auth
-			if username != "" {
-				ip := s.clientIP(r)
-				locked, retryAfter, delay := s.nextLoginDelayFor(username, ip)
-				if locked {
-					if retryAfter > 0 {
-						w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retryAfter.Seconds())))
-					}
-					http.Error(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
-					return
-				}
-				if delay > 0 {
-					time.Sleep(delay)
-				}
-			}
-			var user *settings.User
-			var found bool
-			// Check in-memory users first
-			user, found = s.users.Get(username)
-			if found && (username != user.Name || password != user.Pass) {
-				found = false
-			}
-			// If not found in memory and database is available, check database
-			if !found && s.db != nil {
-				dbUser, err := s.db.GetUser(username)
-				if err == nil && dbUser.Password == password {
-					user = &settings.User{Name: dbUser.Username, Pass: dbUser.Password, IsAdmin: dbUser.IsAdmin}
-					found = true
-				}
-			}
-			if !found || !user.IsAdmin {
-				if username != "" {
-					s.recordLoginFailureFor(username, s.clientIP(r))
-				}
-				// record IP attempt
-				s.ipRateRecord(s.clientIP(r))
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			// success: reset backoff and continue
-			s.resetLoginBackoffFor(username, s.clientIP(r))
-			// record IP attempt
-			s.ipRateRecord(s.clientIP(r))
-			ctx := r.Context()
-			ctx = context.WithValue(ctx, "username", username)
-			ctx = context.WithValue(ctx, "user", user)
-			ctx = context.WithValue(ctx, "authMethod", "basic")
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
-		}
-
-		http.Error(w, "Unsupported authentication method", http.StatusUnauthorized)
-	}
 }
 
 func getUsernameFromPath(path string) (string, error) {
@@ -634,13 +306,9 @@ func (s *Server) handleGetUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fall back to file-based users
-	data, err := s.users.ToJSON()
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	w.Write([]byte(data))
+	// Fall back to file-based users (never expose passwords)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.users.Redacted())
 }
 
 func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
@@ -670,38 +338,39 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	responseJson, err := u.ToJSON()
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	w.Write([]byte(responseJson))
+	json.NewEncoder(w).Encode(u.Redacted())
 }
 
 func (s *Server) handleAddUser(w http.ResponseWriter, r *http.Request) {
 	if s.db != nil {
 		// Use database
-		var newUser database.User
-		if err := json.NewDecoder(r.Body).Decode(&newUser); err != nil {
+		var req dbUserRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request payload", http.StatusBadRequest)
 			return
 		}
 
 		// Basic validation
-		if newUser.Username == "" || newUser.Password == "" {
+		if req.Username == "" || req.Password == "" {
 			http.Error(w, "Username and password are required", http.StatusBadRequest)
 			return
 		}
+		newUser := req.toUser()
+		hash, err := ccrypto.HashPassword(req.Password)
+		if err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		newUser.Password = hash
 
 		// Check if user already exists
-		_, err := s.db.GetUser(newUser.Username)
-		if err == nil {
+		if _, err := s.db.GetUser(newUser.Username); err == nil {
 			http.Error(w, "User already exists", http.StatusConflict)
 			return
 		}
 
 		// Create the user
-		if err := s.db.CreateUser(&newUser); err != nil {
+		if err := s.db.CreateUser(newUser); err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
@@ -744,11 +413,12 @@ func (s *Server) handleAddUser(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if s.db != nil {
 		// Use database
-		var targetUser database.User
-		if err := json.NewDecoder(r.Body).Decode(&targetUser); err != nil {
+		var req dbUserRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request payload", http.StatusBadRequest)
 			return
 		}
+		targetUser := *req.toUser()
 
 		// Check if user exists
 		existingUser, err := s.db.GetUser(targetUser.Username)
@@ -766,9 +436,16 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Preserve existing values if not provided
-		if targetUser.Password == "" {
+		// Preserve existing values if not provided; hash any new password
+		if req.Password == "" {
 			targetUser.Password = existingUser.Password
+		} else {
+			hash, err := ccrypto.HashPassword(req.Password)
+			if err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			targetUser.Password = hash
 		}
 		if targetUser.Addresses == "" {
 			targetUser.Addresses = existingUser.Addresses
@@ -798,7 +475,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current user making this request
-	requestingUser, _, _ := s.decodeBasicAuthHeader(r.Header)
+	requestingUser := s.getCurrentUsername(r)
 
 	// Admins cannot revoke admin permission from themselves
 	if !targetUser.IsAdmin && targetUser.Name == requestingUser {
@@ -871,7 +548,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current user making this request
-	requestingUser, _, _ := s.decodeBasicAuthHeader(r.Header)
+	requestingUser := s.getCurrentUsername(r)
 	if requestingUser == u.Name {
 		http.Error(w, "Cannot delete your own user", http.StatusBadRequest)
 		return
@@ -900,7 +577,7 @@ func (s *Server) handleAuthfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current user making this request
-	requestingUser, _, _ := s.decodeBasicAuthHeader(r.Header)
+	requestingUser := s.getCurrentUsername(r)
 	u, _ := s.users.Get(requestingUser)
 
 	requestingUserFromPayload := &settings.User{}
@@ -975,9 +652,14 @@ func (s *Server) handleUpdateUserAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Set password
+		// Set password (hashed) or preserve the existing one
 		if apiUser.Password != "" {
-			dbUser.Password = apiUser.Password
+			hash, err := ccrypto.HashPassword(apiUser.Password)
+			if err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			dbUser.Password = hash
 		} else {
 			dbUser.Password = existingUser.Password
 		}
