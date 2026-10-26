@@ -51,6 +51,9 @@ builds:
       - arm
     goarm:
       - 7
+    ignore:
+      - goos: windows
+        goarch: arm
 
 archives:
   - id: server_bins
