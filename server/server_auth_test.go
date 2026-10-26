@@ -52,7 +52,12 @@ func newAuthTestServer(t *testing.T, cfg *Config) (*Server, database.Database) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = srv.Shutdown() })
+	// Close both the server's handle and this seeding handle so Windows can
+	// remove the TempDir database file (open files cannot be unlinked there).
+	t.Cleanup(func() {
+		_ = srv.Shutdown()
+		_ = db.Close()
+	})
 	return srv, db
 }
 
