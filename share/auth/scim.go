@@ -17,16 +17,31 @@ import (
 
 // SCIMMiddleware handles SCIM-based authentication
 type SCIMMiddleware struct {
-	db     database.Database
-	config *database.SCIMConfig
+	db       database.Database
+	config   *database.SCIMConfig
+	reserved map[string]bool // usernames SSO may never provision (e.g. the --auth admin)
 }
 
-// NewSCIMMiddleware creates a new SCIM middleware
-func NewSCIMMiddleware(db database.Database, config *database.SCIMConfig) *SCIMMiddleware {
-	return &SCIMMiddleware{
-		db:     db,
-		config: config,
+// NewSCIMMiddleware creates a new SCIM middleware. reservedUsernames are names
+// that must never be minted or adopted through SSO, such as the bootstrap
+// --auth admin, so an IdP cannot hand out a colliding preferred_username.
+func NewSCIMMiddleware(db database.Database, config *database.SCIMConfig, reservedUsernames ...string) *SCIMMiddleware {
+	reserved := make(map[string]bool, len(reservedUsernames))
+	for _, u := range reservedUsernames {
+		if u != "" {
+			reserved[strings.ToLower(u)] = true
+		}
 	}
+	return &SCIMMiddleware{
+		db:       db,
+		config:   config,
+		reserved: reserved,
+	}
+}
+
+// isReserved reports whether name may not be provisioned through SSO.
+func (s *SCIMMiddleware) isReserved(name string) bool {
+	return s.reserved[strings.ToLower(name)]
 }
 
 // SCIMUserInfo represents user information from SCIM provider
@@ -247,17 +262,35 @@ func (s *SCIMMiddleware) getUserInfo(accessToken string) (*SCIMUserInfo, error) 
 	return &userInfo, nil
 }
 
-// createOrUpdateUser creates or updates user in database
+// createOrUpdateUser resolves the SSO identity to a local user, binding by the
+// IdP subject (userInfo.ID) rather than the mutable username/email claims.
 func (s *SCIMMiddleware) createOrUpdateUser(userInfo *SCIMUserInfo) (*database.User, error) {
-	// Check if user exists
+	// The IdP subject is the only trustworthy identifier. preferred_username
+	// and email are attacker-influenceable claims, so without a stable subject
+	// we cannot safely decide which (if any) local account this login owns.
+	if userInfo.ID == "" {
+		return nil, fmt.Errorf("SSO provider did not supply a subject identifier")
+	}
+
 	existingUser, err := s.db.GetUser(userInfo.Username)
 	if err != nil && !strings.Contains(err.Error(), "user not found") {
 		return nil, fmt.Errorf("failed to check existing user: %w", err)
 	}
+	existingAuthSource, _ := s.db.GetUserAuthSource(userInfo.Username)
 
 	var user *database.User
 	if existingUser != nil {
-		// Update existing user
+		// A local account with this username already exists. Only the external
+		// subject already bound to it may log in as it; otherwise an IdP user
+		// could take over a local (or admin) account by choosing a matching
+		// preferred_username or email.
+		if existingAuthSource == nil ||
+			!strings.EqualFold(existingAuthSource.AuthSource, "scim") ||
+			existingAuthSource.ExternalID == nil ||
+			*existingAuthSource.ExternalID != userInfo.ID {
+			return nil, fmt.Errorf("SSO identity does not match existing account %q", userInfo.Username)
+		}
+		// Same subject: safe to refresh profile fields.
 		user = existingUser
 		user.Email = userInfo.Email
 		user.DisplayName = userInfo.DisplayName
@@ -265,7 +298,11 @@ func (s *SCIMMiddleware) createOrUpdateUser(userInfo *SCIMUserInfo) (*database.U
 			return nil, fmt.Errorf("failed to update user in database: %w", err)
 		}
 	} else {
-		// Create new user
+		// Brand-new account. Never let SSO mint a reserved name (e.g. the
+		// bootstrap --auth admin), a usable password, or admin rights.
+		if s.isReserved(userInfo.Username) {
+			return nil, fmt.Errorf("username %q is reserved and cannot be provisioned via SSO", userInfo.Username)
+		}
 		user = &database.User{
 			Username:    userInfo.Username,
 			Password:    "", // SSO users have no local password and cannot log in with one
@@ -279,19 +316,16 @@ func (s *SCIMMiddleware) createOrUpdateUser(userInfo *SCIMUserInfo) (*database.U
 		}
 	}
 
-	// Create or update auth source
+	// Record / refresh the external binding, keyed by the IdP subject.
 	authSource := &database.UserAuthSource{
 		Username:   userInfo.Username,
 		AuthSource: "scim",
 		ExternalID: &userInfo.ID,
 	}
-
-	// Store provider data
 	providerData, _ := json.Marshal(userInfo)
 	providerDataStr := string(providerData)
 	authSource.ProviderData = &providerDataStr
 
-	existingAuthSource, _ := s.db.GetUserAuthSource(userInfo.Username)
 	if existingAuthSource != nil {
 		authSource.ID = existingAuthSource.ID
 		if err := s.db.UpdateUserAuthSource(authSource); err != nil {
