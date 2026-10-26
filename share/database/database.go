@@ -168,7 +168,7 @@ type Database interface {
 type User struct {
 	ID          int       `db:"id" json:"id"`
 	Username    string    `db:"username" json:"username"`
-	Password    string    `db:"password" json:"password,omitempty"`
+	Password    string    `db:"password" json:"-"` // bcrypt hash; never serialized
 	Email       string    `db:"email" json:"email,omitempty"`
 	DisplayName string    `db:"display_name" json:"display_name,omitempty"`
 	IsAdmin     bool      `db:"is_admin" json:"is_admin"`

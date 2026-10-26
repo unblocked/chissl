@@ -10,6 +10,7 @@ import (
 	"github.com/NextChapterSoftware/chissl/server/capture"
 	"github.com/NextChapterSoftware/chissl/share/database"
 	"github.com/NextChapterSoftware/chissl/share/tunnel"
+	"github.com/NextChapterSoftware/chissl/share/utils"
 )
 
 // handleListListeners returns all listeners
@@ -71,6 +72,15 @@ func (s *Server) handleCreateListener(w http.ResponseWriter, r *http.Request) {
 	if req.Mode == "proxy" && req.TargetURL == "" {
 		http.Error(w, "Target URL required for proxy mode", http.StatusBadRequest)
 		return
+	}
+
+	// Proxy targets are fetched by the server on behalf of the user: refuse
+	// non-http(s), credentialed, loopback/private/link-local targets (SSRF).
+	if req.Mode == "proxy" {
+		if _, err := utils.ValidateOutboundURL(req.TargetURL, false); err != nil {
+			http.Error(w, "Invalid target URL: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Get username from auth
@@ -207,6 +217,12 @@ func (s *Server) handleUpdateListener(w http.ResponseWriter, r *http.Request) {
 		listener.Name = strings.TrimSpace(req.Name) // Trim whitespace
 	}
 	if req.TargetURL != "" {
+		if listener.Mode == "proxy" {
+			if _, err := utils.ValidateOutboundURL(req.TargetURL, false); err != nil {
+				http.Error(w, "Invalid target URL: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		listener.TargetURL = strings.TrimSpace(req.TargetURL) // Trim whitespace
 	}
 	if req.Response != "" {
@@ -317,18 +333,7 @@ func (s *Server) canUserAccessListener(r *http.Request, listener *database.Liste
 
 // getAuthenticatedUsername extracts username from request authentication
 func (s *Server) getAuthenticatedUsername(r *http.Request) string {
-	// Check session cookie first
-	if cookie, err := r.Cookie("chissl_session"); err == nil && cookie.Value != "" {
-		return cookie.Value
-	}
-
-	// Check basic auth
-	username, _, ok := s.decodeBasicAuthHeader(r.Header)
-	if ok {
-		return username
-	}
-
-	return ""
+	return s.getCurrentUsername(r)
 }
 
 // EnhancedListener represents a listener with AI information

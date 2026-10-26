@@ -16,8 +16,8 @@ func PipeWithTee(src io.ReadWriteCloser, dst io.ReadWriteCloser, srcToDstTap io.
 	var wg sync.WaitGroup
 	var o sync.Once
 	closeBoth := func() {
-		src.Close()
-		dst.Close()
+		_ = src.Close()
+		_ = dst.Close()
 	}
 
 	// helper: wrap reader with TeeReader if tap provided

@@ -77,15 +77,3 @@ func HttpRequestNoBodyWithBasicAuth(method, url, username, password string) (str
 	}
 	return string(b), nil
 }
-
-func get(url string) (string, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", err
-	}
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}

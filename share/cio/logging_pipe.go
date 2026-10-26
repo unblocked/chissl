@@ -1,7 +1,6 @@
 package cio
 
 import (
-	"fmt"
 	"io"
 	"sync"
 )
@@ -43,7 +42,7 @@ func formatOutput(data []byte) string {
 	if len(data) > maxLogLength {
 		data = data[:maxLogLength]
 	}
-	return fmt.Sprintf("%s", data)
+	return string(data)
 }
 
 func LoggingPipe(src io.ReadWriteCloser, dst io.ReadWriteCloser) (int64, int64) {
@@ -51,8 +50,8 @@ func LoggingPipe(src io.ReadWriteCloser, dst io.ReadWriteCloser) (int64, int64) 
 	var wg sync.WaitGroup
 	var o sync.Once
 	close := func() {
-		src.Close()
-		dst.Close()
+		_ = src.Close()
+		_ = dst.Close()
 	}
 	wg.Add(2)
 	go func() {

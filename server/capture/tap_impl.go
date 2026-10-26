@@ -13,8 +13,6 @@ import (
 
 // HTTP-aware tap that parses request/response when possible and publishes events to the Service.
 
-const maxPeek = 4096
-
 type TapImpl struct {
 	svc       *Service
 	meta      Meta

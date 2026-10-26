@@ -26,3 +26,11 @@ tests/logs
 logs
 openapi_token
 site/
+
+# Local build output and scratch files
+/chissl
+*.db
+shit/
+ddos.sh
+sync.sh
+test_script.py

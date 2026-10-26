@@ -289,12 +289,6 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 
-	case strings.HasPrefix(path, "/api/logs"):
-		switch r.Method {
-		case http.MethodGet:
-			s.combinedAuthMiddleware(s.handleGetLogs)(w, r)
-			return
-		}
 	case strings.HasPrefix(path, "/api/user/"):
 		switch r.Method {
 		case http.MethodGet:
@@ -635,7 +629,7 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 	tun := tunnel.New(tunnel.Config{
 		Logger:     l,
 		Inbound:    s.config.Reverse,
-		Outbound:   true, //server always accepts outbound
+		Outbound:   false, // all remotes are reverse; the server never dials targets chosen by clients
 		KeepAlive:  s.config.KeepAlive,
 		TlsConf:    s.config.TlsConf,
 		TapFactory: tapFactory,

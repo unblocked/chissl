@@ -195,6 +195,10 @@ func (s *Server) handleGetTunnel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid tunnel ID", http.StatusBadRequest)
 		return
 	}
+	if !s.userHasTunnelAccess(r, tunnelID) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 
 	tunnel, err := s.db.GetTunnel(tunnelID)
 	if err != nil {
@@ -283,6 +287,10 @@ func (s *Server) handleDeleteTunnel(w http.ResponseWriter, r *http.Request) {
 	tunnelID := getTunnelIDFromPath(r.URL.Path)
 	if tunnelID == "" {
 		http.Error(w, "Invalid tunnel ID", http.StatusBadRequest)
+		return
+	}
+	if !s.userHasTunnelAccess(r, tunnelID) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 

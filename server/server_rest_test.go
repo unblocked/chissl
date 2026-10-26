@@ -238,7 +238,7 @@ func TestGetUserWithAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result != "{\"username\":\"ping\",\"password\":\"pong1234\",\"addresses\":[\"^80[0-9]{2}\"],\"is_admin\":false}" {
+	if result != "{\"username\":\"ping\",\"addresses\":[\"^80[0-9]{2}\"],\"is_admin\":false}\n" {
 		t.Fatalf("valid auth info - expected user info json but got '%s'", result)
 	}
 
@@ -316,7 +316,7 @@ func TestAddUserWithAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result != "{\"username\":\"nonAdminUser\",\"password\":\"password1\",\"addresses\":[\".*\"],\"is_admin\":false}" {
+	if result != "{\"username\":\"nonAdminUser\",\"addresses\":[\".*\"],\"is_admin\":false}\n" {
 		t.Fatalf("get new userinfo - expected user info json but got '%s'", result)
 	}
 
@@ -380,7 +380,7 @@ func TestUpdateUserWithAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	updatedUser := &settings.User{}
-	err = json.Unmarshal(userJson, updatedUser)
+	err = json.Unmarshal([]byte(result), updatedUser)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +502,9 @@ func TestGetUsersWithAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	users := []*settings.User{}
-	err = json.Unmarshal([]byte(result), &users)
+	if err = json.Unmarshal([]byte(result), &users); err != nil {
+		t.Fatal(err)
+	}
 	if len(users) != 3 {
 		t.Fatalf("list of all users - expected user info json for all users but got '%s'", result)
 	}
@@ -620,8 +622,8 @@ func TestAddAuthfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, "newuser1234") {
-		t.Fatalf("valid user info - expected user info json but got '%s'", result)
+	if !strings.Contains(result, "\"username\":\"newuser\"") || strings.Contains(result, "newuser1234") {
+		t.Fatalf("valid user info - expected redacted user json but got '%s'", result)
 	}
 
 }

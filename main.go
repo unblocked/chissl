@@ -192,32 +192,6 @@ func (flag multiFlag) Set(arg string) error {
 	return nil
 }
 
-type headerFlags struct {
-	http.Header
-}
-
-func (flag *headerFlags) String() string {
-	out := ""
-	for k, v := range flag.Header {
-		out += fmt.Sprintf("%s: %s\n", k, v)
-	}
-	return out
-}
-
-func (flag *headerFlags) Set(arg string) error {
-	index := strings.Index(arg, ":")
-	if index < 0 {
-		return fmt.Errorf(`Invalid header (%s). Should be in the format "HeaderName: HeaderContent"`, arg)
-	}
-	if flag.Header == nil {
-		flag.Header = http.Header{}
-	}
-	key := arg[0:index]
-	value := arg[index+1:]
-	flag.Header.Set(key, strings.TrimSpace(value))
-	return nil
-}
-
 var clientHelp = `
   Usage: chissl client [options] <server> <remote> [remote] [remote] ...
 
@@ -335,7 +309,6 @@ func client(args []string) {
 	flags.BoolVar(&config.TLS.SkipVerify, "tls-skip-verify", false, "")
 	flags.StringVar(&config.TLS.Cert, "tls-cert", "", "")
 	flags.StringVar(&config.TLS.Key, "tls-key", "", "")
-	//flags.Var(&headerFlags{config.Headers}, "header", "")
 	hostname := flags.String("hostname", "", "")
 	sni := flags.String("sni", "", "")
 	pid := flags.Bool("pid", false, "")

@@ -2,17 +2,14 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/auth0/go-jwt-middleware/v2"
 	"github.com/auth0/go-jwt-middleware/v2/jwks"
 	"github.com/auth0/go-jwt-middleware/v2/validator"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 // Auth0Config holds Auth0 configuration
@@ -24,20 +21,20 @@ type Auth0Config struct {
 	Enabled      bool
 }
 
-// Auth0Middleware provides Auth0 JWT validation
+// Auth0Middleware validates Auth0-issued JWT access tokens.
 type Auth0Middleware struct {
-	config     *Auth0Config
-	middleware *jwtmiddleware.JWTMiddleware
+	config    *Auth0Config
+	validator *validator.Validator
 }
 
 // CustomClaims represents the custom claims in the JWT token
 type CustomClaims struct {
 	Scope string `json:"scope"`
-	jwt.RegisteredClaims
+	Email string `json:"email"`
 }
 
 // Validate validates the custom claims
-func (c CustomClaims) Validate(ctx context.Context) error {
+func (c *CustomClaims) Validate(ctx context.Context) error {
 	return nil
 }
 
@@ -45,6 +42,9 @@ func (c CustomClaims) Validate(ctx context.Context) error {
 func NewAuth0Middleware(config *Auth0Config) (*Auth0Middleware, error) {
 	if !config.Enabled {
 		return &Auth0Middleware{config: config}, nil
+	}
+	if config.Domain == "" || config.Audience == "" {
+		return nil, errors.New("auth0: domain and audience are required")
 	}
 
 	issuerURL, err := url.Parse("https://" + config.Domain + "/")
@@ -59,80 +59,61 @@ func NewAuth0Middleware(config *Auth0Config) (*Auth0Middleware, error) {
 		validator.RS256,
 		issuerURL.String(),
 		[]string{config.Audience},
-		validator.WithCustomClaims(
-			func() validator.CustomClaims {
-				return &CustomClaims{}
-			},
-		),
+		validator.WithCustomClaims(func() validator.CustomClaims { return &CustomClaims{} }),
 		validator.WithAllowedClockSkew(time.Minute),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set up JWT validator: %w", err)
 	}
 
-	middleware := jwtmiddleware.New(jwtValidator.ValidateToken)
-
-	return &Auth0Middleware{
-		config:     config,
-		middleware: middleware,
-	}, nil
+	return &Auth0Middleware{config: config, validator: jwtValidator}, nil
 }
 
-// ValidateToken validates a JWT token and returns user information
+// ValidateToken verifies the token's signature (via the tenant JWKS), issuer,
+// audience and expiry, and returns the authenticated user's information.
 func (a *Auth0Middleware) ValidateToken(tokenString string) (*UserInfo, error) {
-	if !a.config.Enabled {
-		return nil, fmt.Errorf("Auth0 is not enabled")
+	if a == nil || a.config == nil || !a.config.Enabled || a.validator == nil {
+		return nil, errors.New("auth0 is not enabled")
+	}
+	tokenString = strings.TrimSpace(strings.TrimPrefix(tokenString, "Bearer "))
+	if tokenString == "" {
+		return nil, errors.New("empty token")
 	}
 
-	// Remove "Bearer " prefix if present
-	if strings.HasPrefix(tokenString, "Bearer ") {
-		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	res, err := a.validator.ValidateToken(ctx, tokenString)
+	if err != nil {
+		return nil, fmt.Errorf("invalid token: %w", err)
+	}
+	claims, ok := res.(*validator.ValidatedClaims)
+	if !ok || claims.RegisteredClaims.Subject == "" {
+		return nil, errors.New("invalid token claims")
 	}
 
-	// For now, return a simplified implementation
-	// In a full implementation, you would parse and validate the JWT token
-	userInfo := &UserInfo{
-		Subject:   "auth0|user",
-		Email:     "",
-		Username:  "auth0|user",
-		Scopes:    []string{"read:tunnels"},
-		IssuedAt:  time.Now(),
-		ExpiresAt: time.Now().Add(time.Hour),
+	info := &UserInfo{
+		Subject:  claims.RegisteredClaims.Subject,
+		Username: claims.RegisteredClaims.Subject,
 	}
-
-	return userInfo, nil
+	if custom, ok := claims.CustomClaims.(*CustomClaims); ok && custom != nil {
+		info.Email = custom.Email
+		info.Scopes = strings.Fields(custom.Scope)
+		if custom.Email != "" {
+			info.Username = custom.Email
+		}
+	}
+	if claims.RegisteredClaims.IssuedAt != 0 {
+		info.IssuedAt = time.Unix(claims.RegisteredClaims.IssuedAt, 0)
+	}
+	if claims.RegisteredClaims.Expiry != 0 {
+		info.ExpiresAt = time.Unix(claims.RegisteredClaims.Expiry, 0)
+	}
+	return info, nil
 }
 
 // IsEnabled returns whether Auth0 is enabled
 func (a *Auth0Middleware) IsEnabled() bool {
-	return a.config.Enabled
-}
-
-// Middleware returns an HTTP middleware function for Auth0 authentication
-func (a *Auth0Middleware) Middleware(next http.HandlerFunc) http.HandlerFunc {
-	if !a.config.Enabled {
-		// If Auth0 is not enabled, just pass through
-		return next
-	}
-
-	return func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "Authorization header required", http.StatusUnauthorized)
-			return
-		}
-
-		userInfo, err := a.ValidateToken(authHeader)
-		if err != nil {
-			log.Printf("Auth0 token validation failed: %v", err)
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
-			return
-		}
-
-		// Add user info to request context
-		ctx := context.WithValue(r.Context(), "userInfo", userInfo)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	}
+	return a != nil && a.config != nil && a.config.Enabled
 }
 
 // UserInfo represents authenticated user information
@@ -153,87 +134,4 @@ func (u *UserInfo) HasScope(scope string) bool {
 		}
 	}
 	return false
-}
-
-// GetUserInfoFromContext extracts user info from request context
-func GetUserInfoFromContext(ctx context.Context) (*UserInfo, bool) {
-	userInfo, ok := ctx.Value("userInfo").(*UserInfo)
-	return userInfo, ok
-}
-
-// CombinedAuthMiddleware provides both basic auth and Auth0 authentication
-type CombinedAuthMiddleware struct {
-	auth0Middleware   *Auth0Middleware
-	basicAuthCallback func(username, password string) bool
-}
-
-// NewCombinedAuthMiddleware creates a middleware that supports both auth methods
-func NewCombinedAuthMiddleware(auth0Config *Auth0Config, basicAuthCallback func(string, string) bool) (*CombinedAuthMiddleware, error) {
-	auth0Middleware, err := NewAuth0Middleware(auth0Config)
-	if err != nil {
-		return nil, err
-	}
-
-	return &CombinedAuthMiddleware{
-		auth0Middleware:   auth0Middleware,
-		basicAuthCallback: basicAuthCallback,
-	}, nil
-}
-
-// Middleware returns an HTTP middleware that tries Auth0 first, then falls back to basic auth
-func (c *CombinedAuthMiddleware) Middleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "Authorization header required", http.StatusUnauthorized)
-			return
-		}
-
-		// Try Auth0 JWT token first
-		if c.auth0Middleware.config.Enabled && strings.HasPrefix(authHeader, "Bearer ") {
-			userInfo, err := c.auth0Middleware.ValidateToken(authHeader)
-			if err == nil {
-				// Auth0 authentication successful
-				ctx := context.WithValue(r.Context(), "userInfo", userInfo)
-				ctx = context.WithValue(ctx, "authMethod", "auth0")
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-			log.Printf("Auth0 authentication failed, falling back to basic auth: %v", err)
-		}
-
-		// Fall back to basic authentication
-		if strings.HasPrefix(authHeader, "Basic ") {
-			username, password, ok := parseBasicAuth(authHeader)
-			if !ok {
-				http.Error(w, "Invalid basic auth format", http.StatusUnauthorized)
-				return
-			}
-
-			if !c.basicAuthCallback(username, password) {
-				http.Error(w, "Invalid credentials", http.StatusUnauthorized)
-				return
-			}
-
-			// Basic authentication successful
-			ctx := context.WithValue(r.Context(), "username", username)
-			ctx = context.WithValue(ctx, "authMethod", "basic")
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
-		}
-
-		http.Error(w, "Unsupported authentication method", http.StatusUnauthorized)
-	}
-}
-
-// parseBasicAuth parses basic authentication header
-func parseBasicAuth(authHeader string) (username, password string, ok bool) {
-	const basicPrefix = "Basic "
-	if !strings.HasPrefix(authHeader, basicPrefix) {
-		return "", "", false
-	}
-
-	// This is a simplified version - in production you'd want proper base64 decoding
-	// For now, we'll assume the existing basic auth parsing logic is used
-	return "", "", false
 }

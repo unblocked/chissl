@@ -71,3 +71,19 @@ func (u *User) ToJSON() (string, error) {
 
 	return string(jsonData), nil
 }
+
+// RedactedUser is the public representation of a User: it never carries the password.
+type RedactedUser struct {
+	Name    string   `json:"username"`
+	Addrs   []string `json:"addresses"`
+	IsAdmin bool     `json:"is_admin"`
+}
+
+// Redacted returns a copy of the user safe to return from the API.
+func (u *User) Redacted() RedactedUser {
+	addrs := make([]string, 0, len(u.Addrs))
+	for _, a := range u.Addrs {
+		addrs = append(addrs, a.String())
+	}
+	return RedactedUser{Name: u.Name, Addrs: addrs, IsAdmin: u.IsAdmin}
+}

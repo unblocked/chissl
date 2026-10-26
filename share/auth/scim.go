@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/NextChapterSoftware/chissl/share/database"
+	"github.com/NextChapterSoftware/chissl/share/session"
 )
 
 // SCIMMiddleware handles SCIM-based authentication
@@ -60,7 +60,8 @@ func (s *SCIMMiddleware) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   600, // 10 minutes
 	})
 
@@ -152,22 +153,24 @@ func (s *SCIMMiddleware) HandleCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Create session using the same cookie name as the dashboard
+	// Issue a server-side session using the same cookie as the dashboard login
+	const ttl = 24 * time.Hour
+	sessionToken, err := session.NewStore(s.db).Issue(user.Username, r.RemoteAddr, ttl)
+	if err != nil {
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     "chissl_session",
-		Value:    user.Username,
+		Name:     session.CookieName,
+		Value:    sessionToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		MaxAge:   86400, // 24 hours
+		Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(ttl.Seconds()),
 	})
 
-	// Store user info in context for session
-	ctx := context.WithValue(r.Context(), "user", user)
-	ctx = context.WithValue(ctx, "authMethod", "scim")
-
-	// Redirect to dashboard
-	http.Redirect(w, r.WithContext(ctx), "/dashboard", http.StatusFound)
+	http.Redirect(w, r, "/dashboard", http.StatusFound)
 }
 
 // exchangeCodeForToken exchanges authorization code for access token
@@ -265,7 +268,7 @@ func (s *SCIMMiddleware) createOrUpdateUser(userInfo *SCIMUserInfo) (*database.U
 		// Create new user
 		user = &database.User{
 			Username:    userInfo.Username,
-			Password:    "SSO_USER", // Placeholder password for SSO users
+			Password:    "", // SSO users have no local password and cannot log in with one
 			Email:       userInfo.Email,
 			DisplayName: userInfo.DisplayName,
 			IsAdmin:     false, // SSO users are not admin by default
@@ -305,13 +308,6 @@ func (s *SCIMMiddleware) createOrUpdateUser(userInfo *SCIMUserInfo) (*database.U
 
 // generateState generates a random state parameter
 func (s *SCIMMiddleware) generateState() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b)
-}
-
-// generateSessionToken generates a random session token
-func (s *SCIMMiddleware) generateSessionToken() string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)

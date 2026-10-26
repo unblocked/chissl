@@ -8,7 +8,6 @@ import (
 
 type rwcConn struct {
 	io.ReadWriteCloser
-	buff []byte
 }
 
 // NewRWCConn converts a RWC into a net.Conn

@@ -34,7 +34,7 @@ linux-on-darwin-with-cgo-with-tests: lint security-tests
 
 
 make-linux-in-docker-on-darwin: lint
-	@docker run --rm -v "$$PWD":/src -w /src golang:1.22-bookworm bash -lc "set -euo pipefail; apt-get update; apt-get install -y gcc g++ make pkg-config; make linux"
+	@docker run --rm -v "$$PWD":/src -w /src golang:1.27-bookworm bash -lc "set -euo pipefail; apt-get update; apt-get install -y gcc g++ make pkg-config; make linux"
 
 
 # Install/ensure macOS cross-compilers for Linux builds

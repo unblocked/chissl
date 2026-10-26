@@ -165,7 +165,7 @@ func TestUserAuthMiddleware(t *testing.T) {
 
 	// Create a test handler that should be accessible to authenticated users
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		username := r.Context().Value("username").(string)
+		username := chserver.UsernameFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("user access granted: " + username))
 	})
@@ -327,7 +327,7 @@ func TestAPITokenAuthentication(t *testing.T) {
 
 	// Create a test handler that should be accessible to authenticated users
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		username := r.Context().Value("username").(string)
+		username := chserver.UsernameFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("token access granted: " + username))
 	})
