@@ -85,8 +85,12 @@ func (d *SQLDatabase) CreateSSOConfig(config *SSOConfig) error {
 	} else if err == nil {
 		// Update existing config
 		config.ID = existingID
-		query := `UPDATE sso_config SET enabled = $2, config_json = $3, updated_at = $4 WHERE id = $1`
-		_, err = d.db.Exec(query, config.ID, config.Enabled, config.ConfigJSON, config.UpdatedAt)
+		// Placeholders must appear in the same order as the arguments: the
+		// go-sqlite3 driver binds $N by order of appearance, so a $1 in the
+		// WHERE clause (passed first) would otherwise be mis-bound and the
+		// update would match no rows.
+		query := `UPDATE sso_config SET enabled = $1, config_json = $2, updated_at = $3 WHERE id = $4`
+		_, err = d.db.Exec(query, config.Enabled, config.ConfigJSON, config.UpdatedAt, config.ID)
 	}
 
 	if err != nil {
