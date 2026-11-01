@@ -113,7 +113,7 @@ jobs:
           check-latest: true
 
       - name: Run GoReleaser [Linux+Windows]
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: v2.4.0
@@ -144,7 +144,7 @@ jobs:
           check-latest: true
 
       - name: Run GoReleaser [Darwin] (build only, no publish)
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: v2.4.0

@@ -50,7 +50,7 @@ jobs:
             linux-libc-dev-armhf-cross linux-libc-dev-arm64-cross
 
       - name: Run GoReleaser (skip publish, snapshot)
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: latest
