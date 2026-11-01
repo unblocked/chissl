@@ -8,14 +8,13 @@ require (
 	github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5
 	github.com/auth0/go-jwt-middleware/v2 v2.3.0
 	github.com/fsnotify/fsnotify v1.7.0
-	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/jpillora/backoff v1.0.0
 	github.com/jpillora/requestlog v1.0.0
 	github.com/jpillora/sizestr v1.0.0
-	github.com/lib/pq v1.10.9
+	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.32
 	golang.org/x/crypto v0.58.0
 	golang.org/x/exp v0.0.0-20240525044651-4c93da0ed11d
