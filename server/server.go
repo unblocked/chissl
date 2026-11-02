@@ -78,6 +78,15 @@ type SecurityConfig struct {
 	LoginBackoff      LoginBackoffConfig `json:"login_backoff"`
 	IPRate            IPRateLimitConfig  `json:"ip_rate"`
 	SessionTTLMinutes int                `json:"session_ttl_minutes"`
+	// TrustedProxies lists IPs or CIDRs of reverse proxies whose
+	// X-Forwarded-For header may be believed. When empty (the default) the
+	// header is ignored and the TCP peer address is used as the client IP.
+	TrustedProxies []string `json:"trusted_proxies"`
+	// AllowPrivateAIEndpoints permits AI provider api_endpoint values that
+	// resolve to loopback, private, link-local or otherwise non-public
+	// addresses (e.g. a self-hosted LLM on the LAN). Off by default so a
+	// provider record cannot be used to reach internal services.
+	AllowPrivateAIEndpoints bool `json:"allow_private_ai_endpoints"`
 }
 
 // Server respresent a chisel service
@@ -103,6 +112,8 @@ type Server struct {
 	multicasts *MulticastManager
 	// log manager
 	logManager *LogManager
+	// parsed Security.TrustedProxies
+	trustedProxyNets []*net.IPNet
 	// in-memory live tunnels when DB is not used
 	liveMu      sync.RWMutex
 	liveTunnels map[string]*database.Tunnel
@@ -193,6 +204,11 @@ func NewServer(c *Config) (*Server, error) {
 	if server.config.Security.SessionTTLMinutes <= 0 {
 		server.config.Security.SessionTTLMinutes = 24 * 60
 	}
+	nets, perr := parseTrustedProxies(server.config.Security.TrustedProxies)
+	if perr != nil {
+		return nil, perr
+	}
+	server.trustedProxyNets = nets
 
 	// Load persisted security settings if present
 	if server.db != nil {
@@ -557,21 +573,81 @@ func (s *Server) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Permissions
 
 // AddUser adds a new user into the server user index
 
-// clientIP returns the best-effort client IP, respecting X-Forwarded-For
+// parseTrustedProxies turns a list of IPs / CIDRs into networks. A bare IP
+// becomes a single-address network.
+func parseTrustedProxies(entries []string) ([]*net.IPNet, error) {
+	var nets []*net.IPNet
+	for _, raw := range entries {
+		e := strings.TrimSpace(raw)
+		if e == "" {
+			continue
+		}
+		if _, n, err := net.ParseCIDR(e); err == nil {
+			nets = append(nets, n)
+			continue
+		}
+		ip := net.ParseIP(e)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid trusted proxy %q: must be an IP or CIDR", raw)
+		}
+		bits := 32
+		if ip.To4() == nil {
+			bits = 128
+		} else {
+			ip = ip.To4()
+		}
+		nets = append(nets, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+	}
+	return nets, nil
+}
+
+// isTrustedProxy reports whether ip belongs to a configured trusted proxy.
+func (s *Server) isTrustedProxy(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	for _, n := range s.trustedProxyNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// clientIP returns the client IP used for rate limiting, login backoff,
+// session binding and security events. X-Forwarded-For is only honoured
+// when the TCP peer is a configured trusted proxy; the header is then walked
+// from the right, skipping trusted hops, so a client cannot prepend a forged
+// address. Anyone else gets their peer address regardless of headers.
 func (s *Server) clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			ip := strings.TrimSpace(parts[0])
-			if ip != "" {
-				return ip
+	peer := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		peer = host
+	}
+	peerIP := net.ParseIP(peer)
+	if !s.isTrustedProxy(peerIP) {
+		return peer
+	}
+	var hops []string
+	for _, h := range r.Header.Values("X-Forwarded-For") {
+		for _, p := range strings.Split(h, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				hops = append(hops, p)
 			}
 		}
 	}
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return host
+	for i := len(hops) - 1; i >= 0; i-- {
+		ip := net.ParseIP(hops[i])
+		if ip == nil {
+			// Malformed hop: stop trusting anything further left.
+			return peer
+		}
+		if !s.isTrustedProxy(ip) {
+			return ip.String()
+		}
 	}
-	return r.RemoteAddr
+	// Every hop was a trusted proxy (or the header is absent).
+	return peer
 }
 
 // nextLoginDelayFor computes lock/delay for a given username and optional client IP

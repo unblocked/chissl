@@ -17,26 +17,34 @@ import (
 )
 
 // aiProviderHTTPClient returns the HTTP client used for outbound calls to AI
-// provider endpoints. Provider endpoints are admin-configured, so private
-// addresses are permitted, but the dialer still connects only to the
-// addresses it resolved and vetted.
-func aiProviderHTTPClient(timeout time.Duration) *http.Client {
+// provider endpoints. Provider endpoints are admin-configured, but the calls
+// are triggered by ordinary users (preview, refine, chat), so non-public
+// addresses are refused unless Security.AllowPrivateAIEndpoints is set. The
+// dialer connects only to the addresses it resolved and vetted, and every
+// redirect is re-validated.
+func (s *Server) aiProviderHTTPClient(timeout time.Duration) *http.Client {
+	allowPrivate := s.config.Security.AllowPrivateAIEndpoints
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
-			DialContext: utils.SafeDialContext(true),
+			DialContext: utils.SafeDialContext(allowPrivate),
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return fmt.Errorf("stopped after 5 redirects")
 			}
-			if _, err := utils.ValidateOutboundURL(req.URL.String(), true); err != nil {
+			if _, err := utils.ValidateOutboundURL(req.URL.String(), allowPrivate); err != nil {
 				return fmt.Errorf("redirect to %s refused: %v", req.URL.String(), err)
 			}
 			return nil
 		},
 	}
 }
+
+// aiGenerationFailedMessage is what callers see when an outbound AI provider
+// call fails. The underlying error (which can carry dial errors, banners or
+// upstream response bodies) is logged server-side only.
+const aiGenerationFailedMessage = "AI generation failed; check the provider configuration or ask an administrator to review the server log"
 
 // authorizeAIListenerAccess verifies that the caller owns the listener (or is
 // an admin). On failure it writes the error response and returns false.
@@ -221,7 +229,7 @@ func (s *Server) handleCreateAIProvider(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Validate endpoint (http/https, host present, no embedded credentials)
-	if _, err := utils.ValidateOutboundURL(req.APIEndpoint, true); err != nil {
+	if _, err := utils.ValidateOutboundURL(req.APIEndpoint, s.config.Security.AllowPrivateAIEndpoints); err != nil {
 		http.Error(w, "Invalid api_endpoint: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -294,7 +302,7 @@ func (s *Server) handleUpdateAIProvider(w http.ResponseWriter, r *http.Request, 
 		provider.Name = req.Name
 	}
 	if req.APIEndpoint != "" {
-		if _, err := utils.ValidateOutboundURL(req.APIEndpoint, true); err != nil {
+		if _, err := utils.ValidateOutboundURL(req.APIEndpoint, s.config.Security.AllowPrivateAIEndpoints); err != nil {
 			http.Error(w, "Invalid api_endpoint: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -771,10 +779,10 @@ func (s *Server) handleAIListenerPreview(w http.ResponseWriter, r *http.Request)
 	s.Debugf("Starting AI generation for preview with provider %s", provider.Name)
 	responses, err := s.callAIForResponseGenerationWithVersion(provider, tempVersion)
 	if err != nil {
-		s.Debugf("AI generation failed: %v", err)
+		s.Infof("AI preview generation failed (provider %s): %v", provider.ID, err)
 		errorResponse := map[string]interface{}{
 			"error":             "AI generation failed",
-			"details":           err.Error(),
+			"details":           aiGenerationFailedMessage,
 			"provider_type":     provider.ProviderType,
 			"provider_name":     provider.Name,
 			"generation_status": "failed",
@@ -853,7 +861,8 @@ func (s *Server) handleAIListenerRefine(w http.ResponseWriter, r *http.Request) 
 	// Generate refined responses using AI
 	responses, err := s.callAIForResponseGenerationWithVersion(provider, refinementVersion)
 	if err != nil {
-		http.Error(w, "AI refinement failed: "+err.Error(), http.StatusInternalServerError)
+		s.Infof("AI refinement failed (provider %s): %v", provider.ID, err)
+		http.Error(w, aiGenerationFailedMessage, http.StatusInternalServerError)
 		return
 	}
 
@@ -1076,7 +1085,11 @@ func (s *Server) generateAIResponsesForVersion(versionID string) {
 	// Generate responses using AI
 	responses, err := s.callAIForResponseGenerationWithVersion(provider, version)
 	if err != nil {
-		s.updateAIResponseVersionError(version, "AI generation failed: "+err.Error())
+		// The raw error can carry transport details about the provider
+		// endpoint; keep it in the server log, not in the user-visible
+		// version record.
+		s.Infof("AI generation failed for listener %s (provider %s): %v", version.AIListenerID, provider.ID, err)
+		s.updateAIResponseVersionError(version, aiGenerationFailedMessage)
 		return
 	}
 
@@ -1339,7 +1352,7 @@ func (s *Server) callOpenAIForGeneration(provider *database.AIProvider, apiKey, 
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	// Make the request
-	client := aiProviderHTTPClient(60 * time.Second)
+	client := s.aiProviderHTTPClient(60 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to make request: %v", err)
@@ -1675,7 +1688,7 @@ func (s *Server) callOpenAIForConversation(provider *database.AIProvider, apiKey
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	// Make the request
-	client := aiProviderHTTPClient(30 * time.Second)
+	client := s.aiProviderHTTPClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to make request: %v", err)

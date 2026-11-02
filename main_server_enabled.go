@@ -58,6 +58,10 @@ func server(args []string) {
 	flags.BoolVar(&config.Dashboard.Enabled, "dashboard", false, "Enable web dashboard")
 	flags.StringVar(&config.Dashboard.Path, "dashboard-path", "/dashboard", "Dashboard URL path")
 
+	// Security configuration
+	flags.Var(multiFlag{&config.Security.TrustedProxies}, "trusted-proxy", "")
+	flags.BoolVar(&config.Security.AllowPrivateAIEndpoints, "ai-allow-private-endpoints", false, "")
+
 	host := flags.String("host", "", "")
 	p := flags.String("p", "", "")
 	port := flags.String("port", "", "")
