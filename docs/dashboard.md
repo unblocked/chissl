@@ -19,6 +19,12 @@ chissl server -v \
 - Basic auth by default (`--auth user:pass`)
 - Optional Auth0 SSO (see Auth0 page)
 
+## Behind a reverse proxy
+- `X-Forwarded-For` is ignored unless the connection comes from a `--trusted-proxy <ip-or-cidr>` (repeatable). Without it, rate limiting, login backoff, session binding and security events use the TCP peer address.
+
+## AI providers
+- Provider `api_endpoint` values that resolve to loopback, private, link-local or other non-public addresses are rejected and never dialed, because preview/refine/chat are available to every user. Pass `--ai-allow-private-endpoints` to permit a self-hosted LLM on the LAN.
+
 ## Sections
 - Tunnels: list, details, delete; capture views for requests/responses
 - Listeners: mock/proxy endpoints; create/update/delete
