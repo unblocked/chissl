@@ -177,6 +177,18 @@ var serverHelp = `
     --dashboard, Enable the web dashboard interface.
 
     --dashboard-path, URL path for the dashboard. Defaults to /dashboard.
+
+    --trusted-proxy, An IP address or CIDR of a reverse proxy sitting in
+    front of the server. May be repeated. The X-Forwarded-For header is
+    only believed for connections arriving from one of these addresses;
+    by default it is ignored and the TCP peer address is used for rate
+    limiting, login backoff, session binding and security events.
+
+    --ai-allow-private-endpoints, Allow AI provider api_endpoint values
+    that resolve to loopback, private, link-local or other non-public
+    addresses (e.g. a self-hosted LLM on the LAN). Off by default: the
+    AI preview, refine and chat endpoints are available to every user, so
+    a provider pointing at an internal service would let any user reach it.
 ` + commonHelp
 
 type multiFlag struct {
