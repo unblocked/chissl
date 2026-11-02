@@ -11,7 +11,6 @@ import (
 
 	"github.com/NextChapterSoftware/chissl/share/ccrypto"
 	"github.com/NextChapterSoftware/chissl/share/database"
-	"github.com/NextChapterSoftware/chissl/share/settings"
 )
 
 // UserInfo represents user information for the frontend
@@ -43,14 +42,10 @@ func (s *Server) handleGetUserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if this is a CLI admin user (from --auth flag)
-	isCLIAdmin := false
-	if s.config != nil && s.config.Auth != "" {
-		au, _ := settings.ParseAuth(s.config.Auth)
-		if username == au {
-			isCLIAdmin = true
-		}
-	}
+	// The --auth CLI admin has no editable database profile. A database/SSO
+	// account that merely shares its username is a normal user and must not be
+	// misclassified here.
+	isCLIAdmin := s.isBootstrapAdmin(r.Context())
 
 	authMethod := authMethodFromContext(r.Context())
 
@@ -255,13 +250,10 @@ func (s *Server) handleUpdateUserProfile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Check if this is a CLI admin user (can't edit profile)
-	if s.config != nil && s.config.Auth != "" {
-		au, _ := settings.ParseAuth(s.config.Auth)
-		if username == au {
-			http.Error(w, "CLI admin users cannot edit profile", http.StatusBadRequest)
-			return
-		}
+	// The --auth CLI admin has no editable database profile.
+	if s.isBootstrapAdmin(r.Context()) {
+		http.Error(w, "CLI admin users cannot edit profile", http.StatusBadRequest)
+		return
 	}
 
 	var req struct {

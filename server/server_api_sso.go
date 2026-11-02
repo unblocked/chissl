@@ -366,7 +366,7 @@ func (s *Server) handleSCIMLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create SCIM middleware and handle login
-	scimMiddleware := auth.NewSCIMMiddleware(s.db, &scimConfig)
+	scimMiddleware := auth.NewSCIMMiddleware(s.db, &scimConfig, s.reservedSSOUsernames()...)
 	scimMiddleware.HandleLogin(w, r)
 }
 
@@ -398,7 +398,7 @@ func (s *Server) handleSCIMCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create SCIM middleware and handle callback
-	scimMiddleware := auth.NewSCIMMiddleware(s.db, &scimConfig)
+	scimMiddleware := auth.NewSCIMMiddleware(s.db, &scimConfig, s.reservedSSOUsernames()...)
 	scimMiddleware.HandleCallback(w, r)
 }
 

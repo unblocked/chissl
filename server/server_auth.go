@@ -155,13 +155,19 @@ func (s *Server) verifyPassword(username, password string) (*settings.User, bool
 }
 
 // isUserAdmin reports whether the authenticated user in ctx has admin rights.
+//
+// Admin status follows the resolved account, never the bare username: the
+// identity established at authentication time (basic-auth / authfile user, or
+// an Auth0-provisioned row) is authoritative, and otherwise a database or
+// authfile account with that username decides. The --auth bootstrap admin is
+// itself an authfile user (IsAdmin=true), so it is granted through the same
+// paths. Crucially, a session or token whose username merely collides with the
+// --auth admin no longer inherits admin — a database row for that name governs
+// instead — which closes the SSO/token username-collision escalation.
 func (s *Server) isUserAdmin(ctx context.Context) bool {
 	username := usernameFromContext(ctx)
 	if username == "" {
 		return false
-	}
-	if au, _, ok := s.adminUser(); ok && username == au {
-		return true
 	}
 	if u, ok := ctx.Value(ctxKeyUser).(*settings.User); ok && u != nil {
 		return u.IsAdmin
@@ -178,6 +184,36 @@ func (s *Server) isUserAdmin(ctx context.Context) bool {
 		return u.IsAdmin
 	}
 	return false
+}
+
+// isBootstrapAdmin reports whether the request authenticated as the --auth CLI
+// admin itself (which has no editable database profile), rather than a database
+// or SSO account that merely shares its username.
+func (s *Server) isBootstrapAdmin(ctx context.Context) bool {
+	au, _, ok := s.adminUser()
+	if !ok {
+		return false
+	}
+	username := usernameFromContext(ctx)
+	if username == "" || !ccrypto.ConstantTimeEquals(username, au) {
+		return false
+	}
+	if s.db != nil {
+		if u, err := s.db.GetUser(username); err == nil && u != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// reservedSSOUsernames lists usernames SSO must never provision or adopt, so an
+// IdP cannot hand out a preferred_username that collides with the bootstrap
+// --auth admin.
+func (s *Server) reservedSSOUsernames() []string {
+	if name, _, ok := s.adminUser(); ok {
+		return []string{name}
+	}
+	return nil
 }
 
 // isCrossSiteRequest reports whether a state-changing request appears to
@@ -243,14 +279,28 @@ func (s *Server) authenticateRequest(r *http.Request) (*identity, *authError) {
 		}
 		if s.auth0 != nil {
 			if userInfo, err := s.auth0.ValidateToken(token); err == nil && userInfo != nil && userInfo.Username != "" {
+				// An SSO identity must never assume the bootstrap --auth admin,
+				// whatever username/subject the IdP asserts.
+				if au, _, ok := s.adminUser(); ok && ccrypto.ConstantTimeEquals(userInfo.Username, au) {
+					return nil, errUnauthorized
+				}
 				id := &identity{Username: userInfo.Username, Method: authMethodAuth0, UserInfo: userInfo}
 				if s.db != nil {
 					dbUser, err := s.db.GetUser(userInfo.Username)
-					if err != nil {
-						// Auto-provision SSO users without a usable local password.
+					if err != nil || dbUser == nil {
+						// Auto-provision SSO users without a usable local
+						// password or admin rights, bound to the token subject.
 						dbUser = &database.User{Username: userInfo.Username, Email: userInfo.Email}
 						if err := s.db.CreateUser(dbUser); err != nil {
 							return nil, &authError{status: http.StatusInternalServerError, message: "Failed to create user"}
+						}
+						if userInfo.Subject != "" {
+							extID := userInfo.Subject
+							_ = s.db.CreateUserAuthSource(&database.UserAuthSource{
+								Username:   userInfo.Username,
+								AuthSource: authMethodAuth0,
+								ExternalID: &extID,
+							})
 						}
 					}
 					id.DBUser = dbUser
