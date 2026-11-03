@@ -1,6 +1,7 @@
 package chserver
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -121,5 +122,28 @@ func TestAIPreviewDoesNotLeakUpstreamErrors(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), aiGenerationFailedMessage) {
 		t.Fatalf("preview error missing generic message: %s", rr.Body.String())
+	}
+}
+
+// Security review: the verbose request log must record the TCP peer, not a
+// client-supplied X-Forwarded-For / X-Real-IP, so access-log entries cannot
+// be forged.
+func TestRequestLogRecordsPeerNotForwardedHeaders(t *testing.T) {
+	var buf bytes.Buffer
+	h := requestLogHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), &buf)
+	req := httptest.NewRequest(http.MethodPost, "/dashboard", nil)
+	req.RemoteAddr = "64.118.149.80:5555"
+	req.Header.Set("X-Forwarded-For", "203.0.113.8")
+	req.Header.Set("X-Real-IP", "203.0.113.9")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	line := buf.String()
+	if !strings.Contains(line, "(64.118.149.80)") {
+		t.Fatalf("access log should record the peer address, got %q", line)
+	}
+	if strings.Contains(line, "203.0.113.") {
+		t.Fatalf("access log recorded a forwarded header address: %q", line)
 	}
 }
