@@ -24,10 +24,10 @@ Alternative: download binaries directly from Releases:
 
 ## Server install (Linux)
 
-One‑liner installer script (v2.0):
+One‑liner installer script (always installs the latest release):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/unblocked/chissl/v2.0/server_installer.sh) FQDN_HERE [port] [admin_password]
+bash <(curl -fsSL https://raw.githubusercontent.com/unblocked/chissl/main/server_installer.sh) FQDN_HERE [port] [admin_password]
 ```
 
 This will:
