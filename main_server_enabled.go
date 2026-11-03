@@ -87,6 +87,13 @@ func server(args []string) {
 		log.Print("Please use `chissl server --keygen /file/path`, followed by `chissl server --keyfile /file/path` to specify the SSH private key")
 	}
 
+	// The help text promises an AUTH environment fallback for the server as
+	// well as the client. Honouring it lets deployments keep the admin
+	// credential in a root-only systemd Environment= drop-in instead of on the
+	// command line, where any local user can read it from /proc/<pid>/cmdline.
+	if config.Auth == "" {
+		config.Auth = os.Getenv("AUTH")
+	}
 	config.Reverse = true
 	if *host == "" {
 		*host = os.Getenv("HOST")
