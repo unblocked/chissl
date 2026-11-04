@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -502,11 +503,24 @@ func (s *Server) StartContext(ctx context.Context, host, port string) error {
 	}()
 	h := http.Handler(http.HandlerFunc(s.handleClientHandler))
 	if s.Debug {
-		o := requestlog.DefaultOptions
-		o.TrustProxy = true
-		h = requestlog.WrapWith(h, o)
+		h = requestLogHandler(h, nil)
 	}
 	return s.httpServer.GoServe(ctx, l, h)
+}
+
+// requestLogHandler wraps h with the verbose per-request access log. The
+// address it records is always the TCP peer: the logger's own proxy-header
+// support (X-Forwarded-For / X-Real-IP) stays off because it believes those
+// headers from any caller, which would let a client forge the source address
+// in the access log. Trusted-proxy aware resolution for rate limiting,
+// sessions and security events lives in clientIP. A nil w logs to stdout.
+func requestLogHandler(h http.Handler, w io.Writer) http.Handler {
+	o := requestlog.DefaultOptions
+	o.TrustProxy = false
+	if w != nil {
+		o.Writer = w
+	}
+	return requestlog.WrapWith(h, o)
 }
 
 // Wait waits for the http server to close
